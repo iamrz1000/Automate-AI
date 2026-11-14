@@ -31,10 +31,13 @@ import {
   Smartphone,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { updatePassword } from 'firebase/auth';
+import { auth, getFirebaseAuthErrorMessage } from '../../firebase';
 import { UserProfile } from '../../types';
 import { ALL_CONNECTORS, ALL_MCP_SERVERS } from '../../data/integrationsData';
 import { UserAvatar } from '../common/UserAvatar';
 import { LiquidGlassSwitch } from '../common/LiquidGlassPrimitives';
+import { apiUrl } from '../../utils/platform';
 
 interface SettingsViewProps {
   user: UserProfile;
@@ -42,6 +45,7 @@ interface SettingsViewProps {
   onOpenUpgrade: () => void;
   onSignOut: () => void;
   onDeleteAccount: () => void;
+  onOpenDownloads?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -50,6 +54,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenUpgrade,
   onSignOut,
   onDeleteAccount,
+  onOpenDownloads,
 }) => {
   const [activeTab, setActiveTab] = useState('profile');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -62,7 +67,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [email] = useState(user.email || 'user@example.com');
   const [phoneNumber, setPhoneNumber] = useState(user.phone || '');
   const [dob] = useState(user.dob || '');
-  const [role, setRole] = useState(user.role || 'Member');
+  const [role, setRole] = useState(user.jobTitle || (user.role === 'admin' ? 'Administrator' : 'Member'));
   const [organization, setOrganization] = useState(user.organization || '');
   const [colorMode, setColorMode] = useState<'light' | 'system' | 'dark'>(user.theme || 'dark');
   const [copiedCode, setCopiedCode] = useState(false);
@@ -79,7 +84,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (isDownloadingZip) return;
     setIsDownloadingZip(true);
     try {
-      const response = await fetch('/api/export-zip');
+      const response = await fetch(apiUrl('/api/export-zip'));
       if (!response.ok) {
         throw new Error('Archive unavailable');
       }
@@ -149,12 +154,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const handleUpdatePassword = (e: React.FormEvent) => {
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPasswordToast(true);
-    setNewPassword('');
-    setConfirmPassword('');
-    setTimeout(() => setPasswordToast(false), 3000);
+    if (newPassword.length < 6) {
+      triggerToast('Password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      triggerToast('Passwords do not match.');
+      return;
+    }
+    if (!auth.currentUser) {
+      triggerToast('Please sign in first to update your password.');
+      return;
+    }
+    try {
+      await updatePassword(auth.currentUser, newPassword);
+      setPasswordToast(true);
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPasswordToast(false), 3000);
+    } catch (error) {
+      triggerToast(getFirebaseAuthErrorMessage(error));
+    }
   };
 
   const mobileSettingsTabs = [
@@ -194,9 +216,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {active && (
           <motion.span
             layoutId="settings-active-tab"
-            transition={{ type: 'spring', stiffness: 440, damping: 32 }}
-            className="absolute inset-0 rounded-full liquid-glass-droplet"
-          />
+            layout="position"
+            transition={{ type: 'spring', stiffness: 760, damping: 42, mass: 0.42 }}
+            className="absolute inset-0 rounded-full liquid-glass-droplet overflow-hidden"
+          >
+            <span className="absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/55 to-transparent dark:from-white/25 pointer-events-none" />
+          </motion.span>
         )}
         <div className="relative z-10 flex items-center gap-2.5">
           <Icon className={`w-3.5 h-3.5 ${active ? 'text-violet-600 dark:text-violet-300' : ''}`} />
@@ -398,7 +423,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
-              transition={{ type: 'spring', stiffness: 360, damping: 32 }}
+              transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.5 }}
               className="fixed inset-y-2.5 left-2.5 w-72 max-w-[85vw] z-50 md:hidden liquid-glass-elevated rounded-[28px] flex flex-col p-4 overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-3">
@@ -445,7 +470,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <div className="flex items-center p-1 liquid-glass-subtle rounded-full">
                     <button
                       onClick={() => setPhotoType('photo')}
-                      className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                      className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-colors duration-150 cursor-pointer ${
                         photoType === 'photo'
                           ? 'liquid-glass-droplet text-slate-950 dark:text-white'
                           : 'text-slate-500 dark:text-slate-400'
@@ -455,7 +480,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </button>
                     <button
                       onClick={() => setPhotoType('avatar')}
-                      className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                      className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-colors duration-150 cursor-pointer ${
                         photoType === 'avatar'
                           ? 'liquid-glass-droplet text-slate-950 dark:text-white'
                           : 'text-slate-500 dark:text-slate-400'
@@ -538,14 +563,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       </label>
                       <select
                         value={role}
-                        onChange={(e) => setRole(e.target.value)}
+                        onChange={(e) => {
+                          setRole(e.target.value);
+                          onUpdateUser({ jobTitle: e.target.value });
+                        }}
                         className="w-full px-3.5 py-2.5 text-xs liquid-glass-input rounded-2xl text-slate-900 dark:text-white focus:outline-none"
                       >
                         <option value="Student" className="bg-white dark:bg-[#181826]">Student</option>
-                        <option value="Engineer" className="bg-white dark:bg-[#181826]">Software Engineer</option>
+                        <option value="Software Engineer" className="bg-white dark:bg-[#181826]">Software Engineer</option>
                         <option value="Researcher" className="bg-white dark:bg-[#181826]">Researcher</option>
                         <option value="Member" className="bg-white dark:bg-[#181826]">Member</option>
-                        <option value="admin" className="bg-white dark:bg-[#181826]">Administrator</option>
+                        {user.isAdmin && (
+                          <option value="Administrator" className="bg-white dark:bg-[#181826]">Administrator</option>
+                        )}
                       </select>
                     </div>
 
@@ -716,27 +746,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                 </div>
 
-                {/* Export Project ZIP for APK Conversion */}
+                {/* Cross-Platform Apps & Export Project ZIP */}
                 <div className="p-5 rounded-[28px] liquid-glass-card space-y-3">
                   <div className="flex items-start gap-2.5">
                     <div className="w-9 h-9 rounded-2xl liquid-glass-orb flex items-center justify-center text-violet-600 dark:text-violet-400 shrink-0">
                       <Smartphone className="w-4 h-4" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-xs">Export Project ZIP</h4>
+                      <h4 className="font-bold text-slate-900 dark:text-white text-xs">Desktop & Mobile Apps</h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Download source + built bundle for Capacitor / APK conversion.
+                        Install native Android, iOS, Windows, macOS, or Linux builds, or export source ZIP.
                       </p>
                     </div>
                   </div>
+                  {onOpenDownloads && (
+                    <button
+                      type="button"
+                      onClick={onOpenDownloads}
+                      className="w-full py-2.5 px-4 liquid-glass-cta rounded-full text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Open Download Center</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleDownloadProjectZip}
                     disabled={isDownloadingZip}
-                    className="w-full py-2.5 px-4 liquid-glass-cta rounded-full text-xs font-bold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                    className="w-full py-2 px-4 liquid-glass-orb rounded-full text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>{isDownloadingZip ? 'Preparing ZIP...' : 'Download automate-ai-chatbot.zip'}</span>
+                    <span>{isDownloadingZip ? 'Preparing ZIP...' : 'Download Source ZIP'}</span>
                   </button>
                 </div>
               </div>
@@ -1128,7 +1168,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <button
                         key={p}
                         onClick={() => setChatRetention(p)}
-                        className={`px-3 py-1.5 rounded-full font-semibold transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-full font-semibold transition-colors duration-150 cursor-pointer ${
                           chatRetention === p
                             ? 'liquid-glass-droplet text-slate-950 dark:text-white'
                             : 'liquid-glass-subtle text-slate-600 dark:text-slate-300'
@@ -1148,7 +1188,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <button
                         key={p}
                         onClick={() => setAgentRetention(p)}
-                        className={`px-3 py-1.5 rounded-full font-semibold transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-full font-semibold transition-colors duration-150 cursor-pointer ${
                           agentRetention === p
                             ? 'liquid-glass-droplet text-slate-950 dark:text-white'
                             : 'liquid-glass-subtle text-slate-600 dark:text-slate-300'
@@ -1168,7 +1208,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <button
                         key={p}
                         onClick={() => setGeneratedRetention(p)}
-                        className={`px-3 py-1.5 rounded-full font-semibold transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-full font-semibold transition-colors duration-150 cursor-pointer ${
                           generatedRetention === p
                             ? 'liquid-glass-droplet text-slate-950 dark:text-white'
                             : 'liquid-glass-subtle text-slate-600 dark:text-slate-300'

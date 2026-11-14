@@ -100,18 +100,18 @@ export const LiquidGlassSwitch: React.FC<LiquidGlassSwitchProps> = ({
       <motion.span
         animate={{
           x: checked ? knobTravel : 0,
-          scaleX: isPressed ? 1.24 : 1,
-          scaleY: isPressed ? 1.16 : 1,
+          scaleX: isPressed ? 1.2 : 1,
+          scaleY: isPressed ? 1.14 : 1,
         }}
         transition={{
           type: 'spring',
-          stiffness: 520,
-          damping: 30,
-          mass: 0.7,
+          stiffness: 740,
+          damping: 38,
+          mass: 0.45,
         }}
-        className={`block ${knobSize} rounded-full liquid-glass-lens origin-center pointer-events-none relative overflow-hidden`}
+        className={`block ${knobSize} rounded-full liquid-glass-lens origin-center pointer-events-none relative overflow-hidden will-change-transform`}
       >
-        <span className="absolute inset-0 bg-gradient-to-br from-white/50 via-transparent to-transparent pointer-events-none" />
+        <span className="absolute inset-0 bg-gradient-to-br from-white/55 via-transparent to-transparent pointer-events-none" />
       </motion.span>
     </button>
   );
@@ -146,15 +146,15 @@ export const LiquidThemeSwitch: React.FC<LiquidThemeSwitchProps> = ({
           triggerHaptic('selection');
           onToggle();
         }}
-        className="w-7 h-7 sm:w-8 sm:h-8 rounded-full liquid-glass-orb text-slate-700 dark:text-slate-200 flex items-center justify-center transition-all shrink-0 cursor-pointer relative overflow-hidden"
+        className="w-7 h-7 sm:w-8 sm:h-8 rounded-full liquid-glass-orb text-slate-700 dark:text-slate-200 flex items-center justify-center transition-colors shrink-0 cursor-pointer relative overflow-hidden"
         title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       >
         <motion.div
           key={isDark ? 'sun' : 'moon'}
-          initial={{ rotate: -65, scale: 0.65, opacity: 0 }}
+          initial={{ rotate: -55, scale: 0.72, opacity: 0 }}
           animate={{ rotate: 0, scale: 1, opacity: 1 }}
-          transition={{ type: 'spring', stiffness: 420, damping: 24 }}
+          transition={{ type: 'spring', stiffness: 640, damping: 32 }}
         >
           {isDark ? (
             <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300" />
@@ -180,7 +180,7 @@ export const LiquidThemeSwitch: React.FC<LiquidThemeSwitchProps> = ({
         triggerHaptic('selection');
         onToggle();
       }}
-      className={`relative w-[78px] h-8 rounded-full p-0.5 border cursor-pointer select-none overflow-hidden transition-colors duration-300 flex items-center ${
+      className={`relative w-[78px] h-8 rounded-full p-0.5 border cursor-pointer select-none overflow-hidden transition-colors duration-250 flex items-center ${
         isDark
           ? 'bg-white/10 border-white/20 shadow-[inset_0_1px_2px_rgba(0,0,0,0.45)]'
           : 'bg-slate-900/8 border-white/80 shadow-[inset_0_1px_3px_rgba(15,23,42,0.08)]'
@@ -188,7 +188,7 @@ export const LiquidThemeSwitch: React.FC<LiquidThemeSwitchProps> = ({
     >
       {/* Mode Label inside the track (opposite the sliding crystal lens) */}
       <span
-        className={`absolute text-[10px] font-semibold tracking-tight transition-all duration-300 pointer-events-none ${
+        className={`absolute text-[10px] font-semibold tracking-tight transition-opacity duration-200 pointer-events-none ${
           isDark
             ? 'left-2.5 text-slate-200/90 opacity-100'
             : 'right-2.5 text-slate-700/90 opacity-100'
@@ -201,20 +201,21 @@ export const LiquidThemeSwitch: React.FC<LiquidThemeSwitchProps> = ({
       <motion.span
         animate={{
           x: isDark ? 42 : 0,
-          scale: isPressed ? 1.15 : 1,
+          scale: isPressed ? 1.14 : 1,
         }}
         transition={{
           type: 'spring',
-          stiffness: 460,
-          damping: 28,
+          stiffness: 760,
+          damping: 38,
+          mass: 0.45,
         }}
-        className="w-8 h-7 rounded-full liquid-glass-lens flex items-center justify-center relative z-10 pointer-events-none"
+        className="w-8 h-7 rounded-full liquid-glass-lens flex items-center justify-center relative z-10 pointer-events-none will-change-transform"
       >
         <motion.span
           key={isDark ? 'sun-orb' : 'moon-orb'}
-          initial={{ rotate: -45, scale: 0.7, opacity: 0 }}
+          initial={{ rotate: -40, scale: 0.75, opacity: 0 }}
           animate={{ rotate: 0, scale: 1, opacity: 1 }}
-          transition={{ duration: 0.25 }}
+          transition={{ duration: 0.18 }}
           className="flex items-center justify-center"
         >
           {isDark ? (
@@ -235,7 +236,7 @@ interface LiquidSpecularItemProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /**
  * Interactive glass row/button wrapper that creates a soft radial specular
- * illumination right under the user's pointer/finger (as seen in reference Video 5).
+ * illumination right under the user's pointer using zero-re-render motion values.
  */
 export const LiquidSpecularItem: React.FC<LiquidSpecularItemProps> = ({
   children,
@@ -245,38 +246,40 @@ export const LiquidSpecularItem: React.FC<LiquidSpecularItemProps> = ({
   onPointerLeave,
   ...rest
 }) => {
-  const [spot, setSpot] = useState<{ x: number; y: number; visible: boolean }>({
-    x: 50,
-    y: 50,
-    visible: false,
-  });
+  const spotX = useMotionValue(50);
+  const spotY = useMotionValue(50);
+  const spotOpacity = useMotionValue(active ? 0.35 : 0);
+
+  useEffect(() => {
+    spotOpacity.set(active ? 0.35 : 0);
+  }, [active, spotOpacity]);
+
+  const spotBackground = useMotionTemplate`radial-gradient(120px circle at ${spotX}% ${spotY}%, rgba(255,255,255,0.42), transparent 72%)`;
 
   return (
     <div
       onPointerMove={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
-        const x = ((e.clientX - rect.left) / rect.width) * 100;
-        const y = ((e.clientY - rect.top) / rect.height) * 100;
-        setSpot({ x, y, visible: true });
+        spotX.set(((e.clientX - rect.left) / Math.max(rect.width, 1)) * 100);
+        spotY.set(((e.clientY - rect.top) / Math.max(rect.height, 1)) * 100);
+        spotOpacity.set(1);
         onPointerMove?.(e);
       }}
       onPointerLeave={(e) => {
-        setSpot((prev) => ({ ...prev, visible: false }));
+        spotOpacity.set(active ? 0.35 : 0);
         onPointerLeave?.(e);
       }}
       className={`relative overflow-hidden ${className}`}
       {...rest}
     >
-      {(spot.visible || active) && (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 transition-opacity duration-200"
-          style={{
-            background: `radial-gradient(120px circle at ${spot.x}% ${spot.y}%, rgba(255,255,255,0.42), transparent 72%)`,
-            opacity: spot.visible ? 1 : 0.35,
-          }}
-        />
-      )}
+      <motion.span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: spotBackground,
+          opacity: spotOpacity,
+        }}
+      />
       <div className="relative z-10">{children}</div>
     </div>
   );
@@ -293,8 +296,8 @@ export const LiquidGlassCardRefraction: React.FC = () => {
 
   const rawX = useMotionValue(-300);
   const rawY = useMotionValue(-300);
-  const smoothX = useSpring(rawX, { stiffness: 360, damping: 32, mass: 0.35 });
-  const smoothY = useSpring(rawY, { stiffness: 360, damping: 32, mass: 0.35 });
+  const smoothX = useSpring(rawX, { stiffness: 520, damping: 36, mass: 0.25 });
+  const smoothY = useSpring(rawY, { stiffness: 520, damping: 36, mass: 0.25 });
 
   const liquidLightBackground = useMotionTemplate`radial-gradient(280px circle at ${smoothX}px ${smoothY}px, rgba(255, 255, 255, 0.28) 0%, rgba(167, 139, 250, 0.13) 34%, rgba(56, 189, 248, 0.06) 56%, transparent 76%)`;
 
@@ -359,7 +362,7 @@ export const LiquidGlassCardRefraction: React.FC = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.2, ease: 'easeOut' }}
+        transition={{ duration: 0.16, ease: 'easeOut' }}
         className="pointer-events-none absolute inset-0 rounded-[inherit] z-20"
         style={{ background: liquidLightBackground }}
       />
@@ -386,8 +389,8 @@ export const LiquidGlassCard: React.FC<LiquidGlassCardProps> = ({
   const [hovered, setHovered] = useState(false);
   const rawX = useMotionValue(-200);
   const rawY = useMotionValue(-200);
-  const smoothX = useSpring(rawX, { stiffness: 360, damping: 32, mass: 0.35 });
-  const smoothY = useSpring(rawY, { stiffness: 360, damping: 32, mass: 0.35 });
+  const smoothX = useSpring(rawX, { stiffness: 520, damping: 36, mass: 0.25 });
+  const smoothY = useSpring(rawY, { stiffness: 520, damping: 36, mass: 0.25 });
 
   const liquidLightBackground = useMotionTemplate`radial-gradient(280px circle at ${smoothX}px ${smoothY}px, rgba(255, 255, 255, 0.28) 0%, rgba(167, 139, 250, 0.13) 34%, rgba(56, 189, 248, 0.06) 56%, transparent 76%)`;
 
@@ -420,7 +423,7 @@ export const LiquidGlassCard: React.FC<LiquidGlassCardProps> = ({
       <motion.div
         aria-hidden="true"
         animate={{ opacity: hovered ? 1 : 0 }}
-        transition={{ duration: 0.2, ease: 'easeOut' }}
+        transition={{ duration: 0.16, ease: 'easeOut' }}
         className="pointer-events-none absolute inset-0 rounded-[inherit] z-20"
         style={{ background: liquidLightBackground }}
       />

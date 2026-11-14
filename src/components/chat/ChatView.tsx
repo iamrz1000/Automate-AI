@@ -32,6 +32,7 @@ import { ModelPickerModal } from './ModelPickerModal';
 import { ModelDetailsModal } from './ModelDetailsModal';
 import { LiveConversationModal } from './LiveConversationModal';
 import { triggerHaptic } from '../../utils/haptics';
+import { apiUrl } from '../../utils/platform';
 import { LiquidSpecularItem } from '../common/LiquidGlassPrimitives';
 
 interface ChatViewProps {
@@ -293,7 +294,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -458,7 +459,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const isImage = lastUserMsg.content.trim().startsWith('/image') ||
         /^(generate|create|draw|make|render|paint|design)\s+(an?\s+)?(image|picture|photo|illustration|art|drawing)/i.test(lastUserMsg.content.trim());
 
-      const response = await fetch('/api/chat', {
+      const response = await fetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -641,7 +642,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             initial={{ x: -272, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: -272, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+            transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.5 }}
             className="fixed inset-y-2 left-2 w-72 rounded-[28px] md:inset-y-0 md:left-0 md:rounded-none md:relative md:w-64 z-40 liquid-glass-elevated md:bg-white/25 md:dark:bg-white/[0.03] md:border-0 md:border-r md:border-slate-900/10 md:dark:border-white/10 md:shadow-none flex flex-col shrink-0 transition-colors overflow-hidden"
           >
             <div className="p-3 border-b border-slate-900/10 dark:border-white/10 flex items-center justify-between gap-2">
@@ -702,9 +703,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       {isActiveConv && (
                         <motion.div
                           layoutId="chat-history-active-pill"
-                          transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-                          className="absolute inset-0 rounded-2xl liquid-glass-droplet"
-                        />
+                          layout="position"
+                          transition={{ type: 'spring', stiffness: 760, damping: 42, mass: 0.42 }}
+                          className="absolute inset-0 rounded-2xl liquid-glass-droplet overflow-hidden"
+                        >
+                          <span className="absolute inset-x-2 top-0.5 h-1/2 rounded-xl bg-gradient-to-b from-white/50 to-transparent dark:from-white/22 pointer-events-none" />
+                        </motion.div>
                       )}
                       <div className="relative z-10 flex items-center gap-2 truncate min-w-0">
                         <MessageSquare className={`w-3.5 h-3.5 shrink-0 ${isActiveConv ? 'text-violet-600 dark:text-violet-300' : 'text-slate-400'}`} />
@@ -917,7 +921,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       setInput(s.label);
                       setShowSuggestions(false);
                     }}
-                    className="shrink-0 px-3 py-1.5 rounded-full liquid-glass-orb text-slate-700 dark:text-slate-200 hover:text-violet-700 dark:hover:text-violet-300 flex items-center gap-1.5 transition-all text-xs cursor-pointer"
+                    className="shrink-0 px-3 py-1.5 rounded-full liquid-glass-orb text-slate-700 dark:text-slate-200 hover:text-violet-700 dark:hover:text-violet-300 flex items-center gap-1.5 transition-colors duration-150 text-xs cursor-pointer"
                   >
                     <span>{s.icon}</span>
                     <span>{s.label}</span>
@@ -932,9 +936,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {/* Left: Model chip + reload icon + optional reasoning/summary badge */}
             <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
               <motion.button
+                whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setIsModelPickerOpen(true)}
-                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full liquid-glass-orb text-slate-800 dark:text-slate-100 transition-all group min-w-0 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full liquid-glass-orb text-slate-800 dark:text-slate-100 transition-colors duration-150 group min-w-0 cursor-pointer"
                 title="Switch model"
               >
                 <span className="text-violet-600 dark:text-violet-300 text-xs font-bold shrink-0">✱</span>
@@ -986,9 +991,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {/* Right: Glasses, Ghost, Lightbulb, History (Theme toggle only on sm+ since TopBar already has it on mobile) */}
             <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500 dark:text-slate-300 shrink-0">
               <motion.button
+                whileHover={{ scale: 1.07 }}
                 whileTap={{ scale: 0.88 }}
                 onClick={() => setReasoningActive(!reasoningActive)}
-                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer ${
                   reasoningActive
                     ? 'liquid-glass-droplet text-violet-700 dark:text-violet-200'
                     : 'liquid-glass-orb hover:text-slate-900 dark:hover:text-white'
@@ -999,9 +1005,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </motion.button>
 
               <motion.button
+                whileHover={{ scale: 1.07 }}
                 whileTap={{ scale: 0.88 }}
                 onClick={handleToggleTemporaryChat}
-                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer ${
                   isTemporaryChat
                     ? 'liquid-glass-droplet text-violet-700 dark:text-violet-200'
                     : 'liquid-glass-orb hover:text-slate-900 dark:hover:text-white'
@@ -1012,9 +1019,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </motion.button>
 
               <motion.button
+                whileHover={{ scale: 1.07 }}
                 whileTap={{ scale: 0.88 }}
                 onClick={() => setShowSuggestions(!showSuggestions)}
-                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer ${
                   showSuggestions
                     ? 'liquid-glass-droplet text-violet-700 dark:text-violet-200'
                     : 'liquid-glass-orb hover:text-slate-900 dark:hover:text-white'
@@ -1025,9 +1033,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </motion.button>
 
               <motion.button
+                whileHover={{ scale: 1.07 }}
                 whileTap={{ scale: 0.88 }}
                 onClick={toggleDrawer}
-                className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer ${
                   isDrawerOpen
                     ? 'liquid-glass-droplet text-violet-700 dark:text-violet-200'
                     : 'liquid-glass-orb hover:text-slate-900 dark:hover:text-white'
@@ -1038,6 +1047,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </motion.button>
 
               <motion.button
+                whileHover={{ scale: 1.07 }}
                 whileTap={{ scale: 0.88 }}
                 onClick={onToggleTheme}
                 className="hidden sm:flex w-7 h-7 rounded-full liquid-glass-orb hover:text-slate-900 dark:hover:text-white items-center justify-center transition-colors cursor-pointer"
@@ -1052,10 +1062,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <AnimatePresence>
             {showAttachMenu && (
               <motion.div
-                initial={{ opacity: 0, y: 14, scale: 0.88 }}
+                initial={{ opacity: 0, y: 12, scale: 0.9 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                transition={{ type: 'spring', stiffness: 440, damping: 30 }}
+                exit={{ opacity: 0, y: 8, scale: 0.92 }}
+                transition={{ type: 'spring', stiffness: 660, damping: 34, mass: 0.45 }}
                 style={{ transformOrigin: 'bottom left' }}
                 className="absolute bottom-24 left-3 sm:left-4 z-40 liquid-glass-elevated text-slate-900 dark:text-white rounded-[26px] p-2.5 w-72 max-w-[calc(100vw-1.5rem)]"
               >
@@ -1111,7 +1121,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </AnimatePresence>
 
           {/* iOS 27 Rounded Liquid Glass Composer Dock */}
-          <div className="liquid-glass-elevated rounded-[28px] p-2.5 sm:p-3.5 transition-all">
+          <div className="liquid-glass-elevated rounded-[28px] p-2.5 sm:p-3.5 relative">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/80 dark:via-white/35 to-transparent"
+            />
             {/* Attachment Previews */}
             <AnimatePresence>
               {attachments.length > 0 && (
@@ -1180,7 +1194,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 >
                   <motion.span
                     animate={{ rotate: showAttachMenu ? 45 : 0 }}
-                    transition={{ type: 'spring', stiffness: 460, damping: 26 }}
+                    transition={{ type: 'spring', stiffness: 700, damping: 34 }}
                     className="flex items-center justify-center"
                   >
                     <Plus className="w-4 h-4" />
@@ -1202,7 +1216,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   whileTap={{ scale: 0.95 }}
                   type="button"
                   onClick={() => setIsLiveModalOpen(true)}
-                  className="h-8 px-2.5 sm:px-3 rounded-full liquid-glass-droplet text-violet-700 dark:text-violet-200 text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                  className="h-8 px-2.5 sm:px-3 rounded-full liquid-glass-droplet text-violet-700 dark:text-violet-200 text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
                   title="Start Live Voice & Vision session"
                 >
                   <Radio className="w-3 h-3 text-violet-600 dark:text-violet-300 animate-pulse shrink-0" />
@@ -1217,7 +1231,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   aria-pressed={conciseMode}
                   aria-label="Toggle summary and conciseness mode"
                   onClick={() => setConciseMode((prev) => !prev)}
-                  className={`h-8 px-2.5 sm:px-3 rounded-full text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`h-8 px-2.5 sm:px-3 rounded-full text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
                     conciseMode
                       ? 'liquid-glass-droplet text-emerald-700 dark:text-emerald-200 ring-1 ring-emerald-400/40'
                       : 'liquid-glass-orb text-slate-600 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-300'
@@ -1264,11 +1278,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 ) : (
                   <motion.button
                     whileTap={{ scale: 0.9 }}
+                    whileHover={{ scale: 1.05 }}
                     onClick={toggleVoice}
-                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors duration-150 cursor-pointer ${
                       isListening
                         ? 'bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/40'
-                        : 'liquid-glass-orb text-slate-700 dark:text-white hover:scale-105'
+                        : 'liquid-glass-orb text-slate-700 dark:text-white'
                     }`}
                   >
                     {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}

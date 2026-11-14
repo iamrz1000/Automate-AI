@@ -1,0 +1,81 @@
+appId: com.automateai.desktop
+productName: Automate AI
+copyright: Copyright © 2026 Automate AI
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - build/icons/**/*
+  - package.json
+  - "!node_modules/**/*"
+
+asar: true
+
+win:
+  icon: build/icons/icon.ico
+  artifactName: "Automate-AI-Windows-${version}-${arch}.${ext}"
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: msi
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Automate AI
+  uninstallDisplayName: Automate AI
+
+msi:
+  oneClick: false
+  perMachine: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icons/icon.icns
+  artifactName: "Automate-AI-macOS-${version}-universal.${ext}"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: electron/entitlements.mac.plist
+  entitlementsInherit: electron/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: pkg
+      arch:
+        - universal
+
+dmg:
+  title: "Install Automate AI"
+
+pkg:
+  installLocation: /Applications
+
+linux:
+  icon: build/icons
+  category: Utility;Development;
+  synopsis: Automate AI Multi-Model Workspace
+  description: Cross-platform AI workspace with multi-model chat, autonomous agents, voice & vision live studio.
+  artifactName: "Automate-AI-Linux-${version}-${arch}.${ext}"
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+    - target: rpm
+      arch:
+        - x64

@@ -13,15 +13,35 @@ import {
   Info,
   CheckCircle2,
   Shield,
+  Download,
 } from 'lucide-react';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  updateProfile,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+} from 'firebase/auth';
+import {
+  auth,
+  googleProvider,
+  githubProvider,
+  getFirebaseAuthErrorMessage,
+  savePendingSignupMetadata,
+} from '../../firebase';
 import { UserProfile } from '../../types';
 import { LiquidThemeSwitch } from '../common/LiquidGlassPrimitives';
 
 interface AuthViewProps {
-  onLogin: (profileData: Partial<UserProfile>) => void;
+  onLogin?: (profileData: Partial<UserProfile>) => void;
   notice?: { type: 'info' | 'warning' | 'success'; message: string } | null;
   theme?: 'light' | 'system' | 'dark';
   onToggleTheme?: () => void;
+  onOpenDownloads?: () => void;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
@@ -29,6 +49,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   notice,
   theme = 'dark',
   onToggleTheme,
+  onOpenDownloads,
 }) => {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [showPassword, setShowPassword] = useState(false);
@@ -49,35 +70,113 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [signupOrg, setSignupOrg] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
 
-  const handleSignInSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage('');
+  const applyPersistence = async () => {
+    await setPersistence(
+      auth,
+      rememberMe ? browserLocalPersistence : browserSessionPersistence
+    );
+  };
 
-    if (!loginEmail.trim()) {
-      setErrorMessage('Please enter your email address.');
+  const handleGoogleSignIn = async () => {
+    setErrorMessage('');
+    setInfoMessage('');
+    setIsLoading(true);
+    try {
+      await applyPersistence();
+      const credential = await signInWithPopup(auth, googleProvider);
+      if (onLogin) {
+        onLogin({
+          uid: credential.user.uid,
+          id: credential.user.uid,
+          name: credential.user.displayName || credential.user.email?.split('@')[0] || 'Member',
+          email: credential.user.email || '',
+          emailVerified: credential.user.emailVerified,
+          avatarUrl: credential.user.photoURL || undefined,
+          jobTitle: 'Developer',
+        });
+      }
+    } catch (error) {
+      setErrorMessage(getFirebaseAuthErrorMessage(error));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGithubSignIn = async () => {
+    setErrorMessage('');
+    setInfoMessage('');
+    setIsLoading(true);
+    try {
+      await applyPersistence();
+      const credential = await signInWithPopup(auth, githubProvider);
+      if (onLogin) {
+        onLogin({
+          uid: credential.user.uid,
+          id: credential.user.uid,
+          name: credential.user.displayName || credential.user.email?.split('@')[0] || 'GitHub User',
+          email: credential.user.email || '',
+          emailVerified: credential.user.emailVerified,
+          avatarUrl: credential.user.photoURL || undefined,
+          jobTitle: 'Software Engineer',
+        });
+      }
+    } catch (error) {
+      setErrorMessage(getFirebaseAuthErrorMessage(error));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setErrorMessage('');
+    setInfoMessage('');
+    const targetEmail = loginEmail.trim();
+    if (!targetEmail || !targetEmail.includes('@')) {
+      setErrorMessage('Enter your email address above first to receive a password reset link.');
       return;
     }
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: loginEmail.trim(),
-          password: loginPassword,
-        }),
-      });
+      await sendPasswordResetEmail(auth, targetEmail);
+      setInfoMessage(`Password reset instructions sent to ${targetEmail}. Please check your inbox.`);
+    } catch (error) {
+      setErrorMessage(getFirebaseAuthErrorMessage(error));
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorMessage(data.error || 'Authentication failed. Please check your credentials.');
-        return;
+  const handleSignInSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage('');
+    setInfoMessage('');
+
+    const normalizedEmail = loginEmail.trim();
+    if (!normalizedEmail) {
+      setErrorMessage('Please enter your email address.');
+      return;
+    }
+    if (!loginPassword) {
+      setErrorMessage('Please enter your password.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await applyPersistence();
+      const credential = await signInWithEmailAndPassword(auth, normalizedEmail, loginPassword);
+      if (onLogin) {
+        onLogin({
+          uid: credential.user.uid,
+          id: credential.user.uid,
+          name: credential.user.displayName || normalizedEmail.split('@')[0],
+          email: credential.user.email || normalizedEmail,
+          emailVerified: credential.user.emailVerified,
+        });
       }
-
-      onLogin(data.user);
-    } catch {
-      setErrorMessage('Unable to connect to authentication server.');
+    } catch (error) {
+      setErrorMessage(getFirebaseAuthErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -86,12 +185,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setInfoMessage('');
 
-    if (!signupName.trim()) {
+    const trimmedName = signupName.trim();
+    const normalizedEmail = signupEmail.trim();
+    const trimmedOrg = signupOrg.trim() || 'Personal';
+
+    if (!trimmedName) {
       setErrorMessage('Please enter your full name.');
       return;
     }
-    if (!signupEmail.trim() || !signupEmail.includes('@')) {
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
       setErrorMessage('Please enter a valid email address.');
       return;
     }
@@ -106,27 +210,42 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: signupName.trim(),
-          email: signupEmail.trim(),
-          password: signupPassword,
-          role: signupRole,
-          organization: signupOrg.trim() || 'Personal',
-        }),
+      await applyPersistence();
+      const credential = await createUserWithEmailAndPassword(
+        auth,
+        normalizedEmail,
+        signupPassword
+      );
+
+      savePendingSignupMetadata(credential.user.uid, {
+        name: trimmedName,
+        jobTitle: signupRole,
+        organization: trimmedOrg,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorMessage(data.error || 'Sign up failed.');
-        return;
+      await updateProfile(credential.user, {
+        displayName: trimmedName.slice(0, 100),
+      });
+
+      try {
+        await sendEmailVerification(credential.user);
+      } catch (verifyErr) {
+        console.warn('Could not send initial verification email:', verifyErr);
       }
 
-      onLogin(data.user);
-    } catch {
-      setErrorMessage('Unable to complete account registration.');
+      if (onLogin) {
+        onLogin({
+          uid: credential.user.uid,
+          id: credential.user.uid,
+          name: trimmedName,
+          email: credential.user.email || normalizedEmail,
+          emailVerified: credential.user.emailVerified,
+          jobTitle: signupRole,
+          organization: trimmedOrg,
+        });
+      }
+    } catch (error) {
+      setErrorMessage(getFirebaseAuthErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -151,6 +270,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {onOpenDownloads && (
+            <button
+              type="button"
+              onClick={onOpenDownloads}
+              className="px-3 py-1.5 rounded-full liquid-glass-orb text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 cursor-pointer"
+              title="Install Desktop & Mobile Apps"
+            >
+              <Download className="w-3.5 h-3.5 text-violet-600 dark:text-violet-300" />
+              <span className="hidden sm:inline">Get Apps</span>
+            </button>
+          )}
           {onToggleTheme && (
             <LiquidThemeSwitch theme={theme} onToggle={onToggleTheme} />
           )}
@@ -231,9 +361,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     {isActive && (
                       <motion.div
                         layoutId="auth-mode-droplet"
-                        transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                        className="absolute inset-0 rounded-full liquid-glass-droplet"
-                      />
+                        layout="position"
+                        transition={{ type: 'spring', stiffness: 760, damping: 42, mass: 0.42 }}
+                        className="absolute inset-0 rounded-full liquid-glass-droplet overflow-hidden"
+                      >
+                        <span className="absolute inset-x-3 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/55 to-transparent dark:from-white/25 pointer-events-none" />
+                      </motion.div>
                     )}
                     <span className="relative z-10">
                       {tabMode === 'signin' ? 'Sign In' : 'Create Account'}
@@ -249,18 +382,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 whileTap={{ scale: 0.97 }}
                 whileHover={{ scale: 1.01 }}
                 type="button"
-                onClick={() => {
-                  setIsLoading(true);
-                  setTimeout(() => {
-                    setIsLoading(false);
-                    onLogin({
-                      name: 'Google User',
-                      email: 'user@gmail.com',
-                      role: 'Developer',
-                    });
-                  }, 500);
-                }}
-                className="py-2.5 px-3 rounded-2xl liquid-glass-card text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isLoading}
+                onClick={handleGoogleSignIn}
+                className="py-2.5 px-3 rounded-2xl liquid-glass-card text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                   <path
@@ -287,18 +411,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 whileTap={{ scale: 0.97 }}
                 whileHover={{ scale: 1.01 }}
                 type="button"
-                onClick={() => {
-                  setIsLoading(true);
-                  setTimeout(() => {
-                    setIsLoading(false);
-                    onLogin({
-                      name: 'GitHub Dev',
-                      email: 'dev@github.com',
-                      role: 'Software Engineer',
-                    });
-                  }, 500);
-                }}
-                className="py-2.5 px-3 rounded-2xl liquid-glass-card text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isLoading}
+                onClick={handleGithubSignIn}
+                className="py-2.5 px-3 rounded-2xl liquid-glass-card text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <svg className="w-4 h-4 fill-slate-900 dark:fill-white shrink-0" viewBox="0 0 24 24">
                   <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
@@ -364,11 +479,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       </label>
                       <button
                         type="button"
-                        onClick={() => {
-                          setErrorMessage('');
-                          setInfoMessage('Password reset instructions sent if the account exists.');
-                        }}
-                        className="text-[11px] text-violet-600 dark:text-violet-300 hover:underline transition-colors cursor-pointer"
+                        disabled={isLoading}
+                        onClick={handleForgotPassword}
+                        className="text-[11px] text-violet-600 dark:text-violet-300 hover:underline transition-colors cursor-pointer disabled:opacity-60"
                       >
                         Forgot password?
                       </button>

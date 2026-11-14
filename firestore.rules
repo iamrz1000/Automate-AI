@@ -1,0 +1,274 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Pillar 0: Global Safety Net - Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---------------------------------------------------------
+    // Global Hardened Primitives
+    // ---------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser()
+        && (
+          request.auth.token.email == 'faqruddin00000@gmail.com'
+          || request.auth.token.email == 'iamrz100@gmail.com'
+        );
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    // ---------------------------------------------------------
+    // Entity Validation Blueprints
+    // ---------------------------------------------------------
+    function isValidOptionalUserFields(data) {
+      return (!('phone' in data) || (data.phone is string && data.phone.size() <= 32))
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 1000));
+    }
+
+    function isValidAreasOfInterest(listVal) {
+      return listVal is list
+        && listVal.size() <= 20
+        && (listVal.size() == 0 || (listVal[0] is string && listVal[0].size() >= 1 && listVal[0].size() <= 64));
+    }
+
+    function isValidUserProfile(data, targetUserId) {
+      return data.keys().hasAll([
+          'uid',
+          'name',
+          'email',
+          'jobTitle',
+          'role',
+          'organization',
+          'timezone',
+          'plan',
+          'theme',
+          'dailyLimit',
+          'messagesToday',
+          'imagesToday',
+          'referralCode',
+          'referralCount',
+          'referralCredits',
+          'areasOfInterest',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'name',
+          'email',
+          'jobTitle',
+          'role',
+          'organization',
+          'timezone',
+          'plan',
+          'theme',
+          'dailyLimit',
+          'messagesToday',
+          'imagesToday',
+          'referralCode',
+          'referralCount',
+          'referralCredits',
+          'areasOfInterest',
+          'status',
+          'phone',
+          'avatarUrl',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == targetUserId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.jobTitle is string && data.jobTitle.size() >= 1 && data.jobTitle.size() <= 100
+        && data.role in ['user', 'admin']
+        && data.organization is string && data.organization.size() <= 120
+        && data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 80
+        && data.plan in ['Free Member', 'Unlock Every Model', 'Enterprise SuperAdmin']
+        && data.theme in ['light', 'dark', 'system']
+        && data.dailyLimit is int && data.dailyLimit >= 0 && data.dailyLimit <= 999999
+        && data.messagesToday is int && data.messagesToday >= 0 && data.messagesToday <= 1000000
+        && data.imagesToday is int && data.imagesToday >= 0 && data.imagesToday <= 1000000
+        && data.referralCode is string && data.referralCode.size() >= 3 && data.referralCode.size() <= 32
+        && data.referralCount is int && data.referralCount >= 0 && data.referralCount <= 1000000
+        && data.referralCredits is int && data.referralCredits >= 0 && data.referralCredits <= 10000000
+        && isValidAreasOfInterest(data.areasOfInterest)
+        && data.status in ['active', 'suspended']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && isValidOptionalUserFields(data);
+    }
+
+    function isValidAdminGrant(data, targetAdminId) {
+      return data.keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == targetAdminId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && isValidId(data.grantedBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // ---------------------------------------------------------
+    // Collection: /users/{userId}
+    // ---------------------------------------------------------
+    match /users/{userId} {
+      // PII Isolation: Only owner or verified admin can read individual profile
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+
+      // Secure Query Enforcer: Zero get()/exists() in list; non-admins can only query own UID
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isBootstrappedAdmin());
+
+      // Create: Verified owner creates own profile with zero self-assigned privileges
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            incoming().role == 'user'
+            && incoming().plan == 'Free Member'
+            && incoming().dailyLimit == 15
+            && incoming().messagesToday == 0
+            && incoming().imagesToday == 0
+            && incoming().referralCount == 0
+            && incoming().referralCredits == 0
+            && incoming().status == 'active'
+          )
+        );
+
+      // Update: Validation blueprint wraps entire update + action-based branches + admin escape hatch
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'name',
+              'jobTitle',
+              'role',
+              'organization',
+              'timezone',
+              'plan',
+              'theme',
+              'dailyLimit',
+              'messagesToday',
+              'imagesToday',
+              'referralCount',
+              'referralCredits',
+              'areasOfInterest',
+              'status',
+              'phone',
+              'avatarUrl',
+              'updatedAt'
+            ])
+          )
+          ||
+          (
+            isOwner(userId)
+            && incoming().role == existing().role
+            && incoming().plan == existing().plan
+            && incoming().dailyLimit == existing().dailyLimit
+            && incoming().status == existing().status
+            && incoming().referralCode == existing().referralCode
+            && incoming().referralCount == existing().referralCount
+            && incoming().referralCredits == existing().referralCredits
+            && (
+              // Action 1: Owner updates profile details & theme preferences
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'name',
+                'jobTitle',
+                'organization',
+                'timezone',
+                'theme',
+                'areasOfInterest',
+                'phone',
+                'avatarUrl',
+                'updatedAt'
+              ])
+              ||
+              // Action 2: Owner updates daily usage counters (monotonic increment)
+              (
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'messagesToday',
+                  'imagesToday',
+                  'updatedAt'
+                ])
+                && incoming().messagesToday >= existing().messagesToday
+                && incoming().imagesToday >= existing().imagesToday
+              )
+            )
+          )
+        );
+
+      // Delete: Verified owner can delete own account, or verified admin can remove user
+      allow delete: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isAdmin());
+    }
+
+    // ---------------------------------------------------------
+    // Collection: /admins/{adminId}
+    // ---------------------------------------------------------
+    match /admins/{adminId} {
+      allow get: if isVerifiedUser() && isValidId(adminId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+
+      allow create: if isVerifiedUser()
+        && isValidId(adminId)
+        && isValidAdminGrant(incoming(), adminId)
+        && incoming().grantedBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isAdmin();
+
+      allow update: if isVerifiedUser()
+        && isValidId(adminId)
+        && isValidAdminGrant(incoming(), adminId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'grantedBy', 'updatedAt']);
+
+      allow delete: if isVerifiedUser() && isValidId(adminId) && isAdmin();
+    }
+  }
+}

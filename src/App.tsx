@@ -1,5 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import {
+  onAuthStateChanged,
+  signOut,
+  deleteUser,
+  sendEmailVerification,
+  User as FirebaseUser,
+} from 'firebase/auth';
+import {
+  auth,
+  buildUserProfileFromAuth,
+  syncUserProfileToFirestore,
+  updateFirestoreUserProfile,
+  deleteFirestoreUserProfile,
+  readPendingSignupMetadata,
+  getFirebaseAuthErrorMessage,
+} from './firebase';
 import { NavTab, ModelInfo, Agent, ScheduledTask, LibraryAsset, IntegrationConnector, UserProfile, WorkflowDefinition } from './types';
 import { MODELS_CATALOG } from './data/models';
 import { NavigationRail } from './components/layout/NavigationRail';
@@ -15,10 +31,17 @@ import { ModelsView } from './components/models/ModelsView';
 import { SettingsView } from './components/settings/SettingsView';
 import { AuthView } from './components/auth/AuthView';
 import { AdminView } from './components/admin/AdminView';
+import { DownloadsView } from './components/downloads/DownloadsView';
 import { LiquidSearchOverlay } from './components/common/LiquidSearchOverlay';
 import { LiveConversationModal } from './components/chat/LiveConversationModal';
 import { LiquidGlassCardRefraction } from './components/common/LiquidGlassPrimitives';
 import { triggerHaptic, getGlassHapticStyle } from './utils/haptics';
+import {
+  apiUrl,
+  initializeNativePlatform,
+  syncNativeStatusBarTheme,
+  subscribeNetworkStatus,
+} from './utils/platform';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('chat');
@@ -33,16 +56,14 @@ export default function App() {
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   );
 
-  // Authentication State with localStorage session persistence
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    try {
-      const stored = localStorage.getItem('automate_auth_user');
-      return !!stored;
-    } catch {
-      return false;
-    }
-  });
+  // Firebase Authentication State
+  const [authReady, setAuthReady] = useState<boolean>(false);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isVerificationSending, setIsVerificationSending] = useState<boolean>(false);
   const [authNotice, setAuthNotice] = useState<{ type: 'info' | 'warning' | 'success'; message: string } | null>(null);
+  const [showUnauthDownloads, setShowUnauthDownloads] = useState<boolean>(false);
+  const [isOnline, setIsOnline] = useState<boolean>(true);
 
   // Application Data States
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -53,19 +74,8 @@ export default function App() {
     let initialTheme: 'light' | 'dark' | 'system' = 'dark';
     try {
       const storedTheme = localStorage.getItem('automate_theme');
-      if (storedTheme === 'light' || storedTheme === 'dark') {
+      if (storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'system') {
         initialTheme = storedTheme;
-      }
-    } catch {}
-
-    try {
-      const storedUser = localStorage.getItem('automate_auth_user');
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser);
-        return {
-          ...parsed,
-          theme: initialTheme,
-        };
       }
     } catch {}
 
@@ -74,6 +84,7 @@ export default function App() {
       name: 'User',
       email: '',
       role: 'user',
+      jobTitle: 'Member',
       isAdmin: false,
       organization: '',
       timezone: 'UTC',
@@ -82,52 +93,96 @@ export default function App() {
       dailyLimit: 15,
       messagesToday: 0,
       imagesToday: 0,
-      referralCode: 'REF' + Math.floor(1000 + Math.random() * 9000),
+      referralCode: 'REF1000',
       referralCount: 0,
       referralCredits: 0,
       areasOfInterest: ['AI Chat', 'Automation'],
     };
   });
 
-  // Fetch initial data from server
+  // Subscribe to Firebase Authentication state
   useEffect(() => {
-    fetch('/api/agents')
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUser(fbUser);
+
+      if (!fbUser) {
+        setIsAuthenticated(false);
+        setAuthReady(true);
+        try {
+          localStorage.removeItem('automate_auth_user');
+        } catch {}
+        return;
+      }
+
+      const pendingMeta = readPendingSignupMetadata(fbUser.uid);
+      const immediateProfile = buildUserProfileFromAuth(
+        fbUser,
+        pendingMeta || undefined
+      );
+      setUserProfile(immediateProfile);
+      setIsAuthenticated(true);
+      setAuthReady(true);
+
+      try {
+        const syncedProfile = await syncUserProfileToFirestore(
+          fbUser,
+          pendingMeta || undefined
+        );
+        setUserProfile(syncedProfile);
+
+        // Keep server quota state aligned for chat API endpoints
+        fetch(apiUrl('/api/user'), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: syncedProfile.id,
+            name: syncedProfile.name,
+            email: syncedProfile.email,
+            role: syncedProfile.role,
+            isAdmin: syncedProfile.isAdmin,
+            plan: syncedProfile.plan,
+            dailyLimit: syncedProfile.dailyLimit,
+          }),
+        }).catch(() => {});
+      } catch (err) {
+        console.error('Failed to sync user profile with Firestore:', err);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Initialize native mobile lifecycle (StatusBar & hardware Back button) + Network listener
+  useEffect(() => {
+    initializeNativePlatform(userProfile.theme || 'dark');
+    const unsubNet = subscribeNetworkStatus((connected) => setIsOnline(connected));
+    return () => unsubNet();
+  }, []);
+
+  // Fetch initial workspace resources
+  useEffect(() => {
+    fetch(apiUrl('/api/agents'))
       .then((res) => res.json())
       .then((data) => setAgents(data))
       .catch((err) => console.error('Failed to load agents:', err));
 
-    fetch('/api/tasks')
+    fetch(apiUrl('/api/tasks'))
       .then((res) => res.json())
       .then((data) => setTasks(data))
       .catch((err) => console.error('Failed to load tasks:', err));
 
-    fetch('/api/library')
+    fetch(apiUrl('/api/library'))
       .then((res) => res.json())
       .then((data) => setLibraryAssets(data))
       .catch((err) => console.error('Failed to load library:', err));
 
-    fetch('/api/integrations')
+    fetch(apiUrl('/api/integrations'))
       .then((res) => res.json())
       .then((data) => setIntegrations(data))
       .catch((err) => console.error('Failed to load integrations:', err));
-
-    // Only sync /api/user if authenticated
-    if (localStorage.getItem('automate_auth_user')) {
-      fetch('/api/user')
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.email) {
-            setUserProfile((prev) => ({
-              ...prev,
-              ...data,
-            }));
-          }
-        })
-        .catch((err) => console.error('Failed to load user:', err));
-    }
   }, []);
 
-  // Synchronize documentElement class whenever theme changes
+  // Synchronize documentElement class & native StatusBar whenever theme changes
   useEffect(() => {
     const isDark =
       userProfile.theme === 'dark' ||
@@ -138,6 +193,7 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    syncNativeStatusBarTheme(userProfile.theme || 'dark');
   }, [userProfile.theme]);
 
   // Subtle tactile haptic feedback on all interactive button & glass UI clicks
@@ -192,7 +248,7 @@ export default function App() {
   // Handlers
   const handleCreateAgent = async (newAgent: Partial<Agent>) => {
     try {
-      const res = await fetch('/api/agents', {
+      const res = await fetch(apiUrl('/api/agents'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newAgent),
@@ -214,7 +270,7 @@ export default function App() {
 
   const handleCreateTask = async (newTask: Partial<ScheduledTask>) => {
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await fetch(apiUrl('/api/tasks'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newTask),
@@ -228,7 +284,7 @@ export default function App() {
 
   const handleToggleTask = async (taskId: string) => {
     try {
-      const res = await fetch(`/api/tasks/${taskId}/toggle`, { method: 'PATCH' });
+      const res = await fetch(apiUrl(`/api/tasks/${taskId}/toggle`), { method: 'PATCH' });
       const updated = await res.json();
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
     } catch (err) {
@@ -238,7 +294,7 @@ export default function App() {
 
   const handleDeleteTask = async (taskId: string) => {
     try {
-      await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+      await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
     } catch (err) {
       console.error('Task delete failed:', err);
@@ -247,7 +303,7 @@ export default function App() {
 
   const handleAddLibraryAsset = async (newAsset: Partial<LibraryAsset>) => {
     try {
-      const res = await fetch('/api/library', {
+      const res = await fetch(apiUrl('/api/library'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newAsset),
@@ -261,7 +317,7 @@ export default function App() {
 
   const handleDeleteLibraryAsset = async (id: string) => {
     try {
-      await fetch(`/api/library/${id}`, { method: 'DELETE' });
+      await fetch(apiUrl(`/api/library/${id}`), { method: 'DELETE' });
       setLibraryAssets((prev) => prev.filter((a) => a.id !== id));
     } catch (err) {
       console.error('Library delete failed:', err);
@@ -270,7 +326,7 @@ export default function App() {
 
   const handleToggleIntegration = async (id: string) => {
     try {
-      const res = await fetch(`/api/integrations/${id}/toggle`, { method: 'POST' });
+      const res = await fetch(apiUrl(`/api/integrations/${id}/toggle`), { method: 'POST' });
       const updated = await res.json();
       setIntegrations((prev) => prev.map((i) => (i.id === id ? updated : i)));
     } catch (err) {
@@ -279,22 +335,105 @@ export default function App() {
   };
 
   const handleUpdateUser = async (updated: Partial<UserProfile>) => {
+    const isAdminCaller = !!userProfile.isAdmin;
+    const sanitizedUpdates: Partial<UserProfile> = { ...updatesWithoutPrivileges(updated, isAdminCaller) };
+
+    if (sanitizedUpdates.theme) {
+      try {
+        localStorage.setItem('automate_theme', sanitizedUpdates.theme);
+      } catch {}
+    }
+
+    setUserProfile((prev) => ({ ...prev, ...sanitizedUpdates }));
+
+    if (firebaseUser) {
+      try {
+        await updateFirestoreUserProfile(firebaseUser.uid, sanitizedUpdates, isAdminCaller);
+      } catch (err) {
+        console.error('Firestore user update failed:', err);
+      }
+    }
+
     try {
-      const res = await fetch('/api/user', {
+      await fetch(apiUrl('/api/user'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
+        body: JSON.stringify(sanitizedUpdates),
       });
-      const data = await res.json();
-      setUserProfile(data);
     } catch (err) {
       console.error('User update failed:', err);
     }
   };
 
+  function updatesWithoutPrivileges(
+    updated: Partial<UserProfile>,
+    allowPrivileged: boolean
+  ): Partial<UserProfile> {
+    if (allowPrivileged) return updated;
+    const {
+      role: _role,
+      isAdmin: _isAdmin,
+      dailyLimit: _dailyLimit,
+      plan: _plan,
+      status: _status,
+      referralCount: _referralCount,
+      referralCredits: _referralCredits,
+      ...safe
+    } = updated;
+    return safe;
+  }
+
+  const handleResendVerification = async () => {
+    if (!auth.currentUser || isVerificationSending) return;
+    setIsVerificationSending(true);
+    try {
+      await sendEmailVerification(auth.currentUser);
+      setAuthNotice({
+        type: 'success',
+        message: `Verification email resent to ${auth.currentUser.email}. Check your inbox, then click Refresh Status.`,
+      });
+    } catch (error) {
+      setAuthNotice({
+        type: 'warning',
+        message: getFirebaseAuthErrorMessage(error),
+      });
+    } finally {
+      setIsVerificationSending(false);
+    }
+  };
+
+  const handleRefreshVerification = async () => {
+    if (!auth.currentUser) return;
+    try {
+      await auth.currentUser.reload();
+      await auth.currentUser.getIdToken(true);
+      const refreshedUser = auth.currentUser;
+      setFirebaseUser(refreshedUser);
+      if (refreshedUser.emailVerified) {
+        const synced = await syncUserProfileToFirestore(
+          refreshedUser,
+          readPendingSignupMetadata(refreshedUser.uid) || undefined
+        );
+        setUserProfile(synced);
+        setAuthNotice(null);
+      } else {
+        setAuthNotice({
+          type: 'info',
+          message: 'Email is not verified yet. Please click the verification link in your inbox first.',
+        });
+      }
+    } catch (error) {
+      setAuthNotice({
+        type: 'warning',
+        message: getFirebaseAuthErrorMessage(error),
+      });
+    }
+  };
+
   const handleSignOut = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await signOut(auth);
+      await fetch(apiUrl('/api/auth/logout'), { method: 'POST' });
     } catch (err) {
       console.error('Sign out failed:', err);
     }
@@ -302,6 +441,7 @@ export default function App() {
       localStorage.removeItem('automate_auth_user');
     } catch {}
     setIsAuthenticated(false);
+    setActiveTab('chat');
     setAuthNotice({
       type: 'info',
       message: 'You have been signed out successfully. Sign back in anytime to continue.',
@@ -309,8 +449,27 @@ export default function App() {
   };
 
   const handleDeleteAccount = async () => {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      try {
+        await deleteFirestoreUserProfile(currentUser.uid);
+        await deleteUser(currentUser);
+      } catch (error) {
+        const message = getFirebaseAuthErrorMessage(error);
+        try {
+          await signOut(auth);
+        } catch {}
+        setIsAuthenticated(false);
+        setAuthNotice({
+          type: 'warning',
+          message,
+        });
+        return;
+      }
+    }
+
     try {
-      await fetch('/api/user', { method: 'DELETE' });
+      await fetch(apiUrl('/api/user'), { method: 'DELETE' });
     } catch (err) {
       console.error('Account deletion request failed:', err);
     }
@@ -318,10 +477,11 @@ export default function App() {
       localStorage.removeItem('automate_auth_user');
     } catch {}
 
-    const resetUser: UserProfile = {
+    setUserProfile({
       name: 'User',
       email: '',
       role: 'user',
+      jobTitle: 'Member',
       isAdmin: false,
       organization: '',
       timezone: 'UTC',
@@ -334,45 +494,60 @@ export default function App() {
       referralCount: 0,
       referralCredits: 0,
       areasOfInterest: ['AI Chat', 'Automation'],
-    };
-
-    setUserProfile(resetUser);
+    });
     setActiveTab('chat');
     setIsAuthenticated(false);
     setAuthNotice({
       type: 'warning',
-      message: 'Your account and workspace data have been deleted. You can create a new account or sign in below.',
+      message: 'Your Firebase account and profile data have been permanently deleted.',
     });
   };
 
   const handleLogin = (profileData: Partial<UserProfile>) => {
-    const isAdmin = profileData.role === 'admin' || profileData.isAdmin || profileData.email?.toLowerCase() === 'iamrz100@gmail.com';
-    const updatedUser: UserProfile = {
-      ...userProfile,
-      ...profileData,
-      name: profileData.name || (isAdmin ? 'Admin' : 'Member'),
-      email: profileData.email || (isAdmin ? 'iamrz100@gmail.com' : 'user@example.com'),
-      role: isAdmin ? 'admin' : (profileData.role || 'user'),
-      isAdmin,
-      dailyLimit: profileData.dailyLimit ?? (isAdmin ? 999999 : 15),
-    };
-    setUserProfile(updatedUser);
-    try {
-      localStorage.setItem('automate_auth_user', JSON.stringify(updatedUser));
-    } catch {}
-    handleUpdateUser(updatedUser);
-    setIsAuthenticated(true);
     setAuthNotice(null);
+    setUserProfile((prev) => ({
+      ...prev,
+      ...profileData,
+      name: profileData.name || prev.name || 'Member',
+      email: profileData.email || prev.email,
+    }));
   };
 
-  // If user is not authenticated, render the full AuthView (Login & Sign Up screen)
+  if (!authReady) {
+    return (
+      <div className="liquid-ambient-canvas flex h-[100dvh] w-full items-center justify-center text-slate-900 dark:text-slate-50">
+        <div className="rounded-[28px] liquid-glass-elevated p-6 flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl liquid-glass-orb flex items-center justify-center p-2">
+            <img
+              src="/assets/aistudio/automate_ai_logo_transparent.png"
+              alt="Automate AI"
+              className="w-8 h-8 object-contain animate-pulse"
+            />
+          </div>
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+            Restoring session...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is not authenticated, render either public DownloadsView or full AuthView
   if (!isAuthenticated) {
+    if (showUnauthDownloads) {
+      return (
+        <div className="liquid-ambient-canvas flex h-[100dvh] w-full overflow-hidden text-slate-900 dark:text-slate-50 safe-area-screen">
+          <DownloadsView onBack={() => setShowUnauthDownloads(false)} />
+        </div>
+      );
+    }
     return (
       <AuthView
         onLogin={handleLogin}
         notice={authNotice}
         theme={userProfile.theme}
         onToggleTheme={handleToggleTheme}
+        onOpenDownloads={() => setShowUnauthDownloads(true)}
       />
     );
   }
@@ -403,13 +578,14 @@ export default function App() {
         onOpenUpgrade={() => setIsUpgradeOpen(true)}
         onOpenGift={() => setIsGiftOpen(true)}
         onOpenSearch={() => setIsSearchOpen(true)}
+        onOpenDownloads={() => setActiveTab('downloads')}
         theme={userProfile.theme || 'dark'}
         onToggleTheme={handleToggleTheme}
         currentUser={userProfile}
       />
 
       {/* 2. Main Content Boundary */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 md:rounded-[28px] md:liquid-glass md:overflow-hidden relative">
+      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 md:rounded-[28px] md:liquid-glass md:overflow-hidden relative safe-area-top">
         {/* Top Bar with Sidebar toggle, Automate AI logo, morphing search, theme switch, and upgrade */}
         <TopBar
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
@@ -426,16 +602,49 @@ export default function App() {
           onNavigateToAdmin={() => setActiveTab('admin')}
         />
 
-        {/* 3. Screen View Routing with smooth open/close transitions */}
+        {!isOnline && (
+          <div className="mx-3 mt-1 mb-0.5 px-3.5 py-2 rounded-2xl liquid-glass-subtle border border-red-400/40 flex items-center justify-between gap-2 text-xs text-red-700 dark:text-red-200 shrink-0">
+            <span>
+              You appear to be offline. Live model streaming and cloud sync will resume automatically once connected.
+            </span>
+          </div>
+        )}
+
+        {firebaseUser && !firebaseUser.emailVerified && (
+          <div className="mx-3 mt-1 mb-0.5 px-3.5 py-2 rounded-2xl liquid-glass-subtle border border-amber-400/35 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200 shrink-0">
+            <span>
+              Verify <strong>{firebaseUser.email}</strong> via the link sent to your inbox to enable cloud profile syncing.
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isVerificationSending}
+                onClick={handleResendVerification}
+                className="px-2.5 py-1 rounded-full liquid-glass-orb font-semibold text-[11px] cursor-pointer disabled:opacity-60"
+              >
+                {isVerificationSending ? 'Sending...' : 'Resend Email'}
+              </button>
+              <button
+                type="button"
+                onClick={handleRefreshVerification}
+                className="px-2.5 py-1 rounded-full liquid-glass-cta font-semibold text-[11px] cursor-pointer"
+              >
+                Refresh Status
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 3. Screen View Routing with instant non-blocking transitions */}
         <div className="flex-1 flex overflow-hidden pb-[74px] md:pb-0 min-w-0 relative">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, y: 6, scale: 0.995 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.995 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="flex-1 flex overflow-hidden w-full min-w-0"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -3 }}
+              transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+              className="flex-1 flex overflow-hidden w-full h-full min-w-0"
             >
               {activeTab === 'chat' && (
                 <ChatView
@@ -513,7 +722,12 @@ export default function App() {
                   onOpenUpgrade={() => setIsUpgradeOpen(true)}
                   onSignOut={handleSignOut}
                   onDeleteAccount={handleDeleteAccount}
+                  onOpenDownloads={() => setActiveTab('downloads')}
                 />
+              )}
+
+              {activeTab === 'downloads' && (
+                <DownloadsView onBack={() => setActiveTab('chat')} />
               )}
             </motion.div>
           </AnimatePresence>

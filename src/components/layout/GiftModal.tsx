@@ -40,7 +40,7 @@ export const GiftModal: React.FC<GiftModalProps> = ({
             initial={{ opacity: 0, scale: 0.94, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 8 }}
-            transition={{ type: 'spring', damping: 26, stiffness: 340 }}
+            transition={{ type: 'spring', damping: 34, stiffness: 580, mass: 0.45 }}
             onClick={(e) => e.stopPropagation()}
             className="liquid-glass-elevated text-slate-900 dark:text-white rounded-[30px] max-w-lg w-full p-5 sm:p-6 relative max-h-[90vh] overflow-y-auto"
           >

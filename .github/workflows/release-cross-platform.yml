@@ -1,0 +1,584 @@
+name: Build and Release Automate AI Cross-Platform
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+        type: string
+      prerelease:
+        description: 'Mark release as pre-release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  determine-version:
+    name: Resolve Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      version: ${{ steps.ver.outputs.version }}
+      prerelease: ${{ steps.ver.outputs.prerelease }}
+    steps:
+      - name: Compute release tag and semver
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            RAW_TAG="${{ github.event.inputs.version }}"
+            IS_PRE="${{ github.event.inputs.prerelease }}"
+          else
+            RAW_TAG="${GITHUB_REF_NAME}"
+            if [[ "$RAW_TAG" == *-* ]]; then
+              IS_PRE="true"
+            else
+              IS_PRE="false"
+            fi
+          fi
+          case "$RAW_TAG" in
+            v*) TAG="$RAW_TAG" ;;
+            *)  TAG="v${RAW_TAG}" ;;
+          esac
+          SEMVER="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${SEMVER}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${IS_PRE}" >> "$GITHUB_OUTPUT"
+
+  android:
+    name: Build Android (.apk & .aab)
+    needs: determine-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies and build web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm run build
+          npm run build:icons
+
+      - name: Set up Temurin Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Capacitor Android project & icons
+        shell: bash
+        env:
+          VERSION_NAME: ${{ needs.determine-version.outputs.version }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+          # Update Android versionCode / versionName and launcher icons
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i -E "s/versionCode [0-9]+/versionCode ${VERSION_CODE}/" android/app/build.gradle
+            sed -i -E "s/versionName \"[^\"]+\"/versionName \"${VERSION_NAME}\"/" android/app/build.gradle
+          fi
+
+          # Add Camera, Mic, and Notification permissions for Automate AI native features
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            for PERM in \
+              "android.permission.CAMERA" \
+              "android.permission.RECORD_AUDIO" \
+              "android.permission.MODIFY_AUDIO_SETTINGS" \
+              "android.permission.POST_NOTIFICATIONS" \
+              "android.permission.ACCESS_NETWORK_STATE"; do
+              if ! grep -q "$PERM" "$MANIFEST"; then
+                sed -i "s|<uses-permission android:name=\"android.permission.INTERNET\" />|<uses-permission android:name=\"android.permission.INTERNET\" />\n    <uses-permission android:name=\"${PERM}\" />|" "$MANIFEST"
+              fi
+            done
+          fi
+
+          # Generate crisp Automate AI adaptive launcher icons
+          python3 -m venv "${RUNNER_TEMP}/pyvenv"
+          "${RUNNER_TEMP}/pyvenv/bin/pip" install --quiet pillow
+          "${RUNNER_TEMP}/pyvenv/bin/python" - <<'PYEOF'
+          import os
+          from PIL import Image, ImageDraw
+
+          logo_path = "public/assets/aistudio/automate_ai_logo_transparent.png"
+          logo = Image.open(logo_path).convert("RGBA") if os.path.isfile(logo_path) else Image.new("RGBA", (512, 512), (124, 58, 237, 255))
+          bg_color = (9, 10, 20, 255)
+          densities = {"mdpi": (48, 108), "hdpi": (72, 162), "xhdpi": (96, 216), "xxhdpi": (144, 324), "xxxhdpi": (192, 432)}
+
+          for density, (icon_px, fg_px) in densities.items():
+              out_dir = f"android/app/src/main/res/mipmap-{density}"
+              os.makedirs(out_dir, exist_ok=True)
+              fg = Image.new("RGBA", (fg_px, fg_px), (0, 0, 0, 0))
+              safe = int(fg_px * 0.62)
+              resized_fg = logo.resize((safe, safe), Image.Resampling.LANCZOS)
+              fg.paste(resized_fg, ((fg_px - safe) // 2, (fg_px - safe) // 2), resized_fg)
+              fg.save(os.path.join(out_dir, "ic_launcher_foreground.png"), "PNG")
+
+              sq = Image.new("RGBA", (icon_px, icon_px), (0, 0, 0, 0))
+              sq_bg = Image.new("RGBA", (icon_px, icon_px), bg_color)
+              mask = Image.new("L", (icon_px, icon_px), 0)
+              ImageDraw.Draw(mask).rounded_rectangle([0, 0, icon_px - 1, icon_px - 1], radius=max(4, int(icon_px * 0.22)), fill=255)
+              sq.paste(sq_bg, (0, 0), mask)
+              legacy_sz = int(icon_px * 0.72)
+              resized_legacy = logo.resize((legacy_sz, legacy_sz), Image.Resampling.LANCZOS)
+              offset = ((icon_px - legacy_sz) // 2, (icon_px - legacy_sz) // 2)
+              sq.paste(resized_legacy, offset, resized_legacy)
+              sq.save(os.path.join(out_dir, "ic_launcher.png"), "PNG")
+
+              rd = Image.new("RGBA", (icon_px, icon_px), (0, 0, 0, 0))
+              rd_mask = Image.new("L", (icon_px, icon_px), 0)
+              ImageDraw.Draw(rd_mask).ellipse([0, 0, icon_px - 1, icon_px - 1], fill=255)
+              rd.paste(sq_bg, (0, 0), rd_mask)
+              rd.paste(resized_legacy, offset, resized_legacy)
+              rd.save(os.path.join(out_dir, "ic_launcher_round.png"), "PNG")
+          PYEOF
+
+      - name: Build Android APK and Play Store AAB
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+          VERSION: ${{ needs.determine-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p out-android
+          cd android
+          chmod +x ./gradlew
+
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEYSTORE_PASS:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ]; then
+            echo "Signing release APK & Play Store AAB with configured release keystore..."
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/release-keystore.jks
+            ./gradlew assembleRelease bundleRelease --no-daemon \
+              -Pandroid.injected.signing.store.file="$(pwd)/app/release-keystore.jks" \
+              -Pandroid.injected.signing.store.password="${ANDROID_KEYSTORE_PASS}" \
+              -Pandroid.injected.signing.key.alias="${ANDROID_KEY_ALIAS}" \
+              -Pandroid.injected.signing.key.password="${ANDROID_KEY_PASS:-$ANDROID_KEYSTORE_PASS}"
+            rm -f app/release-keystore.jks
+
+            cp app/build/outputs/apk/release/app-release.apk "../out-android/Automate-AI-Android-${VERSION}.apk"
+            cp app/build/outputs/bundle/release/app-release.aab "../out-android/Automate-AI-PlayStore-${VERSION}.aab"
+          else
+            echo "No release keystore secrets configured; building signed debug APK & release AAB..."
+            ./gradlew assembleDebug bundleRelease --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk "../out-android/Automate-AI-Android-${VERSION}.apk"
+            cp app/build/outputs/bundle/release/app-release.aab "../out-android/Automate-AI-PlayStore-${VERSION}.aab"
+          fi
+
+          ls -lh ../out-android
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-packages
+          path: out-android/*
+          if-no-files-found: error
+
+  ios:
+    name: Build iOS (App Store / TestFlight)
+    needs: determine-version
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies and build web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm run build
+
+      - name: Generate Capacitor iOS project & AppIcon
+        shell: bash
+        env:
+          VERSION_NAME: ${{ needs.determine-version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+          npx cap sync ios
+
+          # Set version & usage descriptions in Info.plist
+          PLIST="ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION_NAME}" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUILD_NUMBER}" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Automate AI uses the camera for Live Vision conversations and media uploads.'" "$PLIST" || \
+            /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'Automate AI uses the camera for Live Vision conversations and media uploads.'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'Automate AI uses the microphone for real-time voice conversations.'" "$PLIST" || \
+            /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription 'Automate AI uses the microphone for real-time voice conversations.'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'Automate AI saves generated artwork and attaches images from your library.'" "$PLIST" || \
+            /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 'Automate AI saves generated artwork and attaches images from your library.'" "$PLIST"
+
+          # Populate 1024x1024 iOS AppIcon asset
+          python3 -m venv "${RUNNER_TEMP}/pyvenv"
+          "${RUNNER_TEMP}/pyvenv/bin/pip" install --quiet pillow
+          "${RUNNER_TEMP}/pyvenv/bin/python" - <<'PYEOF'
+          import os, json
+          from PIL import Image
+
+          iconset_dir = "ios/App/App/Assets.xcassets/AppIcon.appiconset"
+          os.makedirs(iconset_dir, exist_ok=True)
+          logo_path = "public/assets/aistudio/automate_ai_logo_transparent.png"
+          logo = Image.open(logo_path).convert("RGBA") if os.path.isfile(logo_path) else Image.new("RGBA", (512, 512), (124, 58, 237, 255))
+
+          canvas = Image.new("RGBA", (1024, 1024), (9, 10, 20, 255))
+          inner = int(1024 * 0.74)
+          resized = logo.resize((inner, inner), Image.Resampling.LANCZOS)
+          canvas.paste(resized, ((1024 - inner) // 2, (1024 - inner) // 2), resized)
+          canvas.convert("RGB").save(os.path.join(iconset_dir, "AppIcon-1024.png"), "PNG")
+
+          with open(os.path.join(iconset_dir, "Contents.json"), "w") as f:
+              json.dump({
+                  "images": [{
+                      "filename": "AppIcon-1024.png",
+                      "idiom": "universal",
+                      "platform": "ios",
+                      "size": "1024x1024"
+                  }],
+                  "info": {"author": "xcode", "version": 1}
+              }, f, indent=2)
+          PYEOF
+
+      - name: Build iOS Archive (and signed IPA when Apple credentials are provided)
+        shell: bash
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VERSION: ${{ needs.determine-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p out-ios
+
+          if [ -d "ios/App/App.xcworkspace" ]; then
+            TARGET_FLAG="-workspace ios/App/App.xcworkspace"
+          else
+            TARGET_FLAG="-project ios/App/App.xcodeproj"
+          fi
+
+          if [ -n "${IOS_CERTIFICATE_BASE64:-}" ] && [ -n "${IOS_PROVISIONING_PROFILE_BASE64:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            echo "Configuring Apple Distribution signing identity..."
+            KEYCHAIN_PATH="${RUNNER_TEMP}/build.keychain-db"
+            KEYCHAIN_PASS="$(openssl rand -hex 16)"
+            security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+            security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+
+            echo "$IOS_CERTIFICATE_BASE64" | base64 --decode > "${RUNNER_TEMP}/cert.p12"
+            security import "${RUNNER_TEMP}/cert.p12" -P "${IOS_CERTIFICATE_PASSWORD:-}" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+            security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+            mkdir -p "${HOME}/Library/MobileDevice/Provisioning Profiles"
+            PROFILE_PATH="${HOME}/Library/MobileDevice/Provisioning Profiles/automate_ai.mobileprovision"
+            echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+            xcodebuild ${TARGET_FLAG} \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -archivePath "${RUNNER_TEMP}/AutomateAI.xcarchive" \
+              DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
+              archive
+
+            cat > "${RUNNER_TEMP}/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+            xcodebuild -exportArchive \
+              -archivePath "${RUNNER_TEMP}/AutomateAI.xcarchive" \
+              -exportOptionsPlist "${RUNNER_TEMP}/ExportOptions.plist" \
+              -exportPath "${RUNNER_TEMP}/ipa-export"
+
+            IPA_FILE="$(find "${RUNNER_TEMP}/ipa-export" -name '*.ipa' | head -n 1)"
+            cp "$IPA_FILE" "out-ios/Automate-AI-iOS-${VERSION}.ipa"
+          else
+            echo "Apple signing secrets not configured; building unsigned verification archive..."
+            xcodebuild ${TARGET_FLAG} \
+              -scheme App \
+              -configuration Release \
+              -sdk iphoneos \
+              -archivePath "${RUNNER_TEMP}/AutomateAI.xcarchive" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGN_IDENTITY="" \
+              archive
+
+            (cd "${RUNNER_TEMP}" && zip -rq "${GITHUB_WORKSPACE}/out-ios/Automate-AI-iOS-${VERSION}-xcarchive-unsigned.zip" "AutomateAI.xcarchive")
+          fi
+
+          ls -lh out-ios
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-packages
+          path: out-ios/*
+          if-no-files-found: error
+
+  windows:
+    name: Build Windows (.exe & .msi)
+    needs: determine-version
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies and package Windows installers
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          VERSION: ${{ needs.determine-version.outputs.version }}
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm version $env:VERSION --no-git-tag-version --allow-same-version
+          npm run build
+          npm run build:icons
+          npx electron-builder --config electron-builder.yml --win nsis msi --x64 --publish never
+          Get-ChildItem release
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: |
+            release/*.exe
+            release/*.msi
+          if-no-files-found: error
+
+  macos:
+    name: Build macOS Universal (.dmg & .pkg)
+    needs: determine-version
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies and package macOS installers
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VERSION: ${{ needs.determine-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm version "${VERSION}" --no-git-tag-version --allow-same-version
+          npm run build
+          npm run build:icons
+          npx electron-builder --config electron-builder.yml --mac dmg pkg --universal --publish never
+          ls -lh release
+
+      - name: Upload macOS installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages
+          path: |
+            release/*.dmg
+            release/*.pkg
+          if-no-files-found: error
+
+  linux:
+    name: Build Linux (.AppImage, .deb, .rpm)
+    needs: determine-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install RPM packaging tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libarchive-tools
+
+      - name: Install dependencies and package Linux installers
+        shell: bash
+        env:
+          VERSION: ${{ needs.determine-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm version "${VERSION}" --no-git-tag-version --allow-same-version
+          npm run build
+          npm run build:icons
+          npx electron-builder --config electron-builder.yml --linux AppImage deb rpm --x64 --publish never
+          ls -lh release
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [determine-version, android, ios, windows, macos, linux]
+    if: always() && (needs.android.result == 'success' || needs.windows.result == 'success' || needs.macos.result == 'success' || needs.linux.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all built platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release assets and compute SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-release
+          find artifacts -type f \( \
+            -name '*.apk' -o -name '*.aab' -o -name '*.ipa' -o -name '*.zip' \
+            -o -name '*.exe' -o -name '*.msi' \
+            -o -name '*.dmg' -o -name '*.pkg' \
+            -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
+          \) -exec cp {} dist-release/ \;
+
+          cd dist-release
+          sha256sum * > SHA256SUMS.txt
+          ls -lh
+          cat SHA256SUMS.txt
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.determine-version.outputs.tag }}
+          VERSION: ${{ needs.determine-version.outputs.version }}
+          IS_PRERELEASE: ${{ needs.determine-version.outputs.prerelease }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE="$(mktemp)"
+          BASE_DL="https://github.com/${REPO}/releases/download/${TAG}"
+
+          find_file() {
+            find dist-release -maxdepth 1 -type f -name "$1" -printf '%f\n' | head -n 1 || true
+          }
+
+          APK_FILE="$(find_file '*.apk')"
+          AAB_FILE="$(find_file '*.aab')"
+          EXE_FILE="$(find_file '*.exe')"
+          MSI_FILE="$(find_file '*.msi')"
+          IPA_FILE="$(find_file '*.ipa')"
+          DMG_FILE="$(find_file '*.dmg')"
+          PKG_FILE="$(find_file '*.pkg')"
+          APPIMAGE_FILE="$(find_file '*.AppImage')"
+          DEB_FILE="$(find_file '*.deb')"
+          RPM_FILE="$(find_file '*.rpm')"
+
+          link_cell() {
+            local fname="$1"
+            local label="$2"
+            if [ -n "$fname" ]; then
+              echo "[${label}](${BASE_DL}/${fname})"
+            else
+              echo "Not generated in this run"
+            fi
+          }
+
+          {
+            echo "## Automate AI ${VERSION} Cross-Platform Release"
+            echo ""
+            echo "| Platform | Package Format | Download |"
+            echo "|---|---|---|"
+            echo "| **Android** | Direct Installer (\`.apk\`) | $(link_cell "$APK_FILE" "Download APK") |"
+            echo "| **Android Play Store** | Play App Bundle (\`.aab\`) | $(link_cell "$AAB_FILE" "Download AAB") |"
+            echo "| **Windows** | Standard Setup (\`.exe\`) | $(link_cell "$EXE_FILE" "Download EXE") |"
+            echo "| **Windows Enterprise** | Microsoft Installer (\`.msi\`) | $(link_cell "$MSI_FILE" "Download MSI") |"
+            echo "| **iOS (iPhone & iPad)** | App Store / TestFlight (\`.ipa\`) | $(link_cell "$IPA_FILE" "Download IPA / Xcode Archive") |"
+            echo "| **macOS Universal** | Apple Silicon + Intel (\`.dmg\`) | $(link_cell "$DMG_FILE" "Download DMG") |"
+            echo "| **macOS Installer** | Package Installer (\`.pkg\`) | $(link_cell "$PKG_FILE" "Download PKG") |"
+            echo "| **Linux Portable** | Universal (\`.AppImage\`) | $(link_cell "$APPIMAGE_FILE" "Download AppImage") |"
+            echo "| **Linux Debian / Ubuntu** | APT Package (\`.deb\`) | $(link_cell "$DEB_FILE" "Download DEB") |"
+            echo "| **Linux Fedora / RHEL** | RPM Package (\`.rpm\`) | $(link_cell "$RPM_FILE" "Download RPM") |"
+            echo ""
+            echo "### Verification"
+            echo "- Verify integrity against [\`SHA256SUMS.txt\`](${BASE_DL}/SHA256SUMS.txt)."
+            echo "- Full installation & signing guide: \`CROSS_PLATFORM_BUILD.md\`."
+          } > "$NOTES_FILE"
+
+          PRE_FLAG=""
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PRE_FLAG="--prerelease"
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist-release/* --clobber
+            gh release edit "$TAG" --title "Automate AI ${TAG}" --notes-file "$NOTES_FILE"
+          else
+            gh release create "$TAG" dist-release/* \
+              --title "Automate AI ${TAG}" \
+              --notes-file "$NOTES_FILE" \
+              --latest \
+              ${PRE_FLAG}
+          fi

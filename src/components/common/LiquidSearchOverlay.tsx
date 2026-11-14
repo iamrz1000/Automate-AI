@@ -169,16 +169,16 @@ export const LiquidSearchOverlay: React.FC<LiquidSearchOverlayProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.14 }}
             onClick={onClose}
             className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xl flex items-start sm:items-center justify-center p-3 sm:p-6 pt-12 sm:pt-6"
           >
             <motion.div
               layoutId="liquid-search-morph"
-              initial={{ opacity: 0, scale: 0.92, y: -12 }}
+              initial={{ opacity: 0, scale: 0.94, y: -10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.94, y: -8 }}
-              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+              exit={{ opacity: 0, scale: 0.96, y: -6 }}
+              transition={{ type: 'spring', stiffness: 660, damping: 38, mass: 0.45 }}
               onClick={(e) => e.stopPropagation()}
               className="w-full max-w-xl liquid-glass-elevated rounded-[32px] p-4 sm:p-5 text-slate-900 dark:text-white overflow-hidden max-h-[82vh] flex flex-col gap-4"
             >

@@ -20,6 +20,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { ChatMessage } from '../../types';
+import { apiUrl } from '../../utils/platform';
 
 interface LiveConversationModalProps {
   isOpen: boolean;
@@ -146,7 +147,7 @@ export const LiveConversationModal: React.FC<LiveConversationModalProps> = ({
       const promptToSend = spokenText.trim() || (frameBase64 ? 'What is in front of the camera right now?' : 'Hello');
 
       try {
-        const res = await fetch('/api/live-analyze', {
+        const res = await fetch(apiUrl('/api/live-analyze'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

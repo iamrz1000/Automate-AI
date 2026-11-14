@@ -384,7 +384,7 @@ export const ModelsView: React.FC<ModelsViewProps> = ({
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
-              transition={{ type: 'spring', stiffness: 360, damping: 32 }}
+              transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.5 }}
               className="fixed inset-y-2.5 left-2.5 w-72 max-w-[85vw] z-50 lg:hidden liquid-glass-elevated rounded-[28px] flex flex-col p-4 overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-3">

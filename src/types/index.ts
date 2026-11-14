@@ -1,4 +1,4 @@
-export type NavTab = 'chat' | 'agents' | 'tasks' | 'build' | 'library' | 'integrations' | 'models' | 'settings' | 'upgrade' | 'admin';
+export type NavTab = 'chat' | 'agents' | 'tasks' | 'build' | 'library' | 'integrations' | 'models' | 'settings' | 'upgrade' | 'admin' | 'downloads';
 
 export interface ModelInfo {
   id: string;
@@ -138,9 +138,12 @@ export interface IntegrationConnector {
 
 export interface UserProfile {
   id?: string;
+  uid?: string;
   name: string;
   email: string;
-  role: string; // 'admin' | 'user' | 'Student' | string
+  emailVerified?: boolean;
+  role: string; // 'admin' | 'user'
+  jobTitle?: string; // e.g. 'Software Engineer' | 'Student' | 'Member'
   organization: string;
   phone?: string;
   dob?: string;
@@ -153,7 +156,7 @@ export interface UserProfile {
   referralCredits: number;
   areasOfInterest: string[];
   isAdmin?: boolean;
-  dailyLimit?: number; // 15 for normal user, Infinity for admin
+  dailyLimit?: number; // 15 for normal user, 999999 for admin
   messagesToday?: number;
   imagesToday?: number;
   status?: 'active' | 'suspended';

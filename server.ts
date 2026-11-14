@@ -1819,20 +1819,123 @@ app.get('/api/admin/audit-logs', (_req: Request, res: Response) => {
   res.json(db.authLogs);
 });
 
-// 9. PROJECT ZIP EXPORT (built cleanly in /tmp so workspace stays clean for GitHub)
+// 9. GITHUB RELEASES DISCOVERY ENDPOINT (Live Release Assets Only - Zero Fake Links)
+const releaseCache: { data: any; timestamp: number; repo: string } = {
+  data: null,
+  timestamp: 0,
+  repo: '',
+};
+
+app.get('/api/releases/latest', async (req: Request, res: Response): Promise<void> => {
+  const repoParam = typeof req.query.repo === 'string' && /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(req.query.repo)
+    ? req.query.repo
+    : (process.env.GITHUB_REPOSITORY || 'iamrz1000/Automate-AI');
+
+  const now = Date.now();
+  if (releaseCache.data && releaseCache.repo === repoParam && now - releaseCache.timestamp < 60000) {
+    res.json(releaseCache.data);
+    return;
+  }
+
+  const releasesPageUrl = `https://github.com/${repoParam}/releases`;
+  const actionsPageUrl = `https://github.com/${repoParam}/actions`;
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'Automate-AI-Release-Client',
+  };
+  if (process.env.GITHUB_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+
+  try {
+    let releaseObj: any = null;
+    const latestResp = await fetch(`https://api.github.com/repos/${repoParam}/releases/latest`, { headers });
+    if (latestResp.ok) {
+      releaseObj = await latestResp.json();
+    } else if (latestResp.status === 404) {
+      const listResp = await fetch(`https://api.github.com/repos/${repoParam}/releases?per_page=1`, { headers });
+      if (listResp.ok) {
+        const listData = await listResp.json();
+        if (Array.isArray(listData) && listData.length > 0) {
+          releaseObj = listData[0];
+        }
+      }
+    }
+
+    const rawAssets: any[] = Array.isArray(releaseObj?.assets) ? releaseObj.assets : [];
+    const pickAsset = (ext: string) => {
+      const found = rawAssets.find(
+        (a) => typeof a?.name === 'string' && a.name.toLowerCase().endsWith(ext.toLowerCase())
+      );
+      if (!found) return null;
+      return {
+        name: found.name,
+        size: found.size,
+        downloadCount: found.download_count || 0,
+        downloadUrl: found.browser_download_url,
+        updatedAt: found.updated_at,
+      };
+    };
+
+    const payload = {
+      repo: repoParam,
+      releasesPageUrl,
+      actionsPageUrl,
+      hasRelease: Boolean(releaseObj),
+      release: releaseObj
+        ? {
+            tagName: releaseObj.tag_name,
+            name: releaseObj.name || releaseObj.tag_name,
+            publishedAt: releaseObj.published_at || releaseObj.created_at,
+            htmlUrl: releaseObj.html_url || releasesPageUrl,
+            prerelease: Boolean(releaseObj.prerelease),
+            body: releaseObj.body || '',
+          }
+        : null,
+      platforms: {
+        androidApk: pickAsset('.apk'),
+        androidAab: pickAsset('.aab'),
+        windowsExe: pickAsset('.exe'),
+        windowsMsi: pickAsset('.msi'),
+        iosIpa: pickAsset('.ipa'),
+        macosDmg: pickAsset('.dmg'),
+        macosPkg: pickAsset('.pkg'),
+        linuxAppImage: pickAsset('.AppImage'),
+        linuxDeb: pickAsset('.deb'),
+        linuxRpm: pickAsset('.rpm'),
+        checksums: pickAsset('SHA256SUMS.txt'),
+      },
+    };
+
+    releaseCache.data = payload;
+    releaseCache.timestamp = now;
+    releaseCache.repo = repoParam;
+    res.json(payload);
+  } catch (err: any) {
+    res.json({
+      repo: repoParam,
+      releasesPageUrl,
+      actionsPageUrl,
+      hasRelease: false,
+      release: null,
+      error: err?.message || 'Unable to query GitHub Releases right now.',
+      platforms: {},
+    });
+  }
+});
+
+// 10. PROJECT ZIP EXPORT (built cleanly in /tmp so workspace stays clean for GitHub)
 app.get('/api/export-zip', (_req: Request, res: Response): void => {
   const zipPath = '/tmp/automate-ai-chatbot.zip';
   try {
     const pyScript = `
-import os, json, zipfile
+import os, zipfile
 root = ${JSON.stringify(__dirname)}
 zip_path = ${JSON.stringify(zipPath)}
 if os.path.exists(zip_path):
     os.remove(zip_path)
-include_files = ["package.json","index.html","vite.config.ts","tsconfig.json","metadata.json",".env.example",".gitignore","server.ts"]
-include_dirs = ["src","public","dist"]
-cap_cfg = json.dumps({"appId":"com.automateai.chatbot","appName":"Automate AI","webDir":"dist","server":{"androidScheme":"https"}}, indent=2) + "\\n"
-guide = "# Converting Automate AI Chatbot to an Android APK\\n\\nDeploy backend (npm run build && npm start with GEMINI_API_KEY), set server.url in capacitor.config.json, then run npx cap add android && npx cap sync android && cd android && ./gradlew assembleDebug.\\n"
+include_files = ["package.json","index.html","vite.config.ts","tsconfig.json","metadata.json",".env.example",".gitignore","server.ts","capacitor.config.ts","electron-builder.yml","CROSS_PLATFORM_BUILD.md"]
+include_dirs = ["src","public","dist","electron","scripts",".github"]
 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
     for f in include_files:
         fp = os.path.join(root, f)
@@ -1842,13 +1945,11 @@ with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         dp = os.path.join(root, d)
         if not os.path.isdir(dp): continue
         for dirpath, dirnames, filenames in os.walk(dp):
-            dirnames[:] = [x for x in dirnames if x not in ("node_modules",".git",".aistudio")]
+            dirnames[:] = [x for x in dirnames if x not in ("node_modules",".git",".aistudio","release")]
             for fn in filenames:
                 if fn.endswith((".zip",".mp4",".mov",".keystore",".jks")): continue
                 full = os.path.join(dirpath, fn)
                 zf.write(full, os.path.relpath(full, root))
-    zf.writestr("capacitor.config.json", cap_cfg)
-    zf.writestr("APK_CONVERSION_GUIDE.md", guide)
 `;
     execFileSync('python3', ['-c', pyScript], { stdio: 'pipe' });
     if (!fs.existsSync(zipPath)) {

@@ -1,0 +1,187 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile, preferences, and quota metadata stored per user UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID owning this profile document.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the user.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified email address of the user.",
+          "maxLength": 254
+        },
+        "jobTitle": {
+          "type": "string",
+          "description": "User profession or workspace title (e.g. Software Engineer, Student).",
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"],
+          "description": "Security authorization role assigned to the user."
+        },
+        "organization": {
+          "type": "string",
+          "description": "Organization or workspace name.",
+          "maxLength": 120
+        },
+        "timezone": {
+          "type": "string",
+          "description": "Preferred user timezone.",
+          "maxLength": 80
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["Free Member", "Unlock Every Model", "Enterprise SuperAdmin"],
+          "description": "Membership tier label."
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark", "system"],
+          "description": "UI color theme preference."
+        },
+        "dailyLimit": {
+          "type": "integer",
+          "description": "Daily inference quota limit."
+        },
+        "messagesToday": {
+          "type": "integer",
+          "description": "Number of chat messages sent today."
+        },
+        "imagesToday": {
+          "type": "integer",
+          "description": "Number of images generated today."
+        },
+        "referralCode": {
+          "type": "string",
+          "description": "User referral code.",
+          "maxLength": 32
+        },
+        "referralCount": {
+          "type": "integer",
+          "description": "Total accepted referrals."
+        },
+        "referralCredits": {
+          "type": "integer",
+          "description": "Earned referral credits."
+        },
+        "areasOfInterest": {
+          "type": "array",
+          "description": "Selected workspace interest topics (max 20)."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended"],
+          "description": "Account status."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Optional user phone number.",
+          "maxLength": 32
+        },
+        "avatarUrl": {
+          "type": "string",
+          "description": "Optional avatar photo URL.",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": [
+        "uid",
+        "name",
+        "email",
+        "jobTitle",
+        "role",
+        "organization",
+        "timezone",
+        "plan",
+        "theme",
+        "dailyLimit",
+        "messagesToday",
+        "imagesToday",
+        "referralCode",
+        "referralCount",
+        "referralCredits",
+        "areasOfInterest",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminGrant": {
+      "title": "AdminGrant",
+      "description": "Trusted server-verified admin role grant keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Granted administrator Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Administrator email address.",
+          "maxLength": 254
+        },
+        "grantedBy": {
+          "type": "string",
+          "description": "UID of the administrator who issued this grant.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin access was granted."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin grant was last updated."
+        }
+      },
+      "required": ["uid", "email", "grantedBy", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Private user profile documents restricted to the owning user and verified admins."
+    },
+    "/admins/{adminId}": {
+      "schema": {
+        "$ref": "#/entities/AdminGrant"
+      },
+      "description": "Trusted administrator lookup collection readable and writable only by authorized admins."
+    }
+  }
+}

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, AuthAuditLog, AdminUserData } from '../../types';
 import { UserAvatar } from '../common/UserAvatar';
+import { apiUrl } from '../../utils/platform';
 
 interface AdminViewProps {
   currentUser: UserProfile;
@@ -103,9 +104,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setIsLoading(true);
     try {
       const [usersRes, logsRes, statsRes] = await Promise.all([
-        fetch('/api/admin/users'),
-        fetch('/api/admin/audit-logs'),
-        fetch('/api/admin/stats'),
+        fetch(apiUrl('/api/admin/users')),
+        fetch(apiUrl('/api/admin/audit-logs')),
+        fetch(apiUrl('/api/admin/stats')),
       ]);
 
       if (usersRes.ok) {
@@ -139,7 +140,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const { user, targetRole } = roleChangeTarget;
 
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/role`, {
+      const res = await fetch(apiUrl(`/api/admin/users/${user.id}/role`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: targetRole }),
@@ -168,7 +169,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           onUpdateUserRole({ role: targetRole, isAdmin: targetRole === 'admin' });
         }
 
-        fetch('/api/admin/audit-logs')
+        fetch(apiUrl('/api/admin/audit-logs'))
           .then((r) => r.json())
           .then(setAuditLogs);
       } else {
@@ -186,7 +187,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleSaveLimit = async () => {
     if (!editingLimitUser) return;
     try {
-      const res = await fetch(`/api/admin/users/${editingLimitUser.id}/limit`, {
+      const res = await fetch(apiUrl(`/api/admin/users/${editingLimitUser.id}/limit`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dailyLimit: Number(customLimitValue) }),
@@ -197,7 +198,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           prev.map((u) => (u.id === editingLimitUser.id ? { ...u, dailyLimit: Number(customLimitValue) } : u))
         );
         setEditingLimitUser(null);
-        fetch('/api/admin/audit-logs')
+        fetch(apiUrl('/api/admin/audit-logs'))
           .then((r) => r.json())
           .then(setAuditLogs);
       }
@@ -212,7 +213,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const nextStatus = suspendTarget.status === 'suspended' ? 'active' : 'suspended';
 
     try {
-      const res = await fetch(`/api/admin/users/${suspendTarget.id}/status`, {
+      const res = await fetch(apiUrl(`/api/admin/users/${suspendTarget.id}/status`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus }),
@@ -233,7 +234,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (!deleteTarget) return;
 
     try {
-      const res = await fetch(`/api/admin/users/${deleteTarget.id}`, { method: 'DELETE' });
+      const res = await fetch(apiUrl(`/api/admin/users/${deleteTarget.id}`), { method: 'DELETE' });
       if (res.ok) {
         showToast(`User ${deleteTarget.name} (${deleteTarget.email}) removed.`);
         setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id));
@@ -254,7 +255,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setIsLoadingConvs(true);
     setActiveTab('conversations');
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/conversations`);
+      const res = await fetch(apiUrl(`/api/admin/users/${user.id}/conversations`));
       if (res.ok) {
         const convs = await res.json();
         setUserConversations(convs);

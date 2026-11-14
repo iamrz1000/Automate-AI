@@ -17,6 +17,7 @@ import {
   Search,
   Sparkles,
   Radio,
+  Download,
 } from 'lucide-react';
 import {
   motion,
@@ -35,6 +36,7 @@ interface NavigationRailProps {
   onOpenUpgrade: () => void;
   onOpenGift: () => void;
   onOpenSearch?: () => void;
+  onOpenDownloads?: () => void;
   theme?: 'light' | 'system' | 'dark';
   onToggleTheme?: () => void;
   currentUser?: UserProfile;
@@ -77,6 +79,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   onOpenUpgrade,
   onOpenGift,
   onOpenSearch,
+  onOpenDownloads,
   theme = 'dark',
   onToggleTheme,
   currentUser,
@@ -110,13 +113,14 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   const mobileTrackRef = useRef<HTMLDivElement>(null);
   const mobileActiveIndex = Math.max(0, FIXED_MOBILE_TABS.indexOf(activeTab));
   const [isMobileScrubbing, setIsMobileScrubbing] = useState(false);
+  const [isMobilePressed, setIsMobilePressed] = useState(false);
   const [mobilePreviewIndex, setMobilePreviewIndex] = useState<number>(mobileActiveIndex);
 
   const mobileTargetIndex = useMotionValue(mobileActiveIndex);
   const mobileSpringIndex = useSpring(mobileTargetIndex, {
-    stiffness: 480,
-    damping: 32,
-    mass: 0.7,
+    stiffness: 780,
+    damping: 42,
+    mass: 0.4,
   });
   const mobileLensX = useTransform(mobileSpringIndex, (v) => `${v * 100}%`);
 
@@ -160,6 +164,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   const handleMobilePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    setIsMobilePressed(true);
     mobileGestureRef.current = {
       active: true,
       didDrag: false,
@@ -182,6 +187,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
     if (g.didDrag) {
       const floatIdx = computeMobileFloatIndex(e.clientX);
       mobileTargetIndex.set(floatIdx);
+      mobileSpringIndex.jump(floatIdx);
       const nearestIdx = Math.round(floatIdx);
       if (nearestIdx !== g.lastPreviewIdx) {
         g.lastPreviewIdx = nearestIdx;
@@ -195,6 +201,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
     const g = mobileGestureRef.current;
     if (!g.active) return;
     g.active = false;
+    setIsMobilePressed(false);
     setIsMobileScrubbing(false);
 
     if (cancelled) {
@@ -222,13 +229,14 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   const desktopTrackRef = useRef<HTMLDivElement>(null);
   const desktopActiveIndex = Math.max(0, desktopTabs.indexOf(activeTab));
   const [isDesktopScrubbing, setIsDesktopScrubbing] = useState(false);
+  const [isDesktopPressed, setIsDesktopPressed] = useState(false);
   const [desktopPreviewIndex, setDesktopPreviewIndex] = useState<number>(desktopActiveIndex);
 
   const desktopTargetY = useMotionValue(desktopActiveIndex * DESKTOP_STEP);
   const desktopSpringY = useSpring(desktopTargetY, {
-    stiffness: 460,
-    damping: 32,
-    mass: 0.72,
+    stiffness: 780,
+    damping: 42,
+    mass: 0.4,
   });
 
   const desktopGestureRef = useRef<{
@@ -276,6 +284,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   const handleDesktopPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    setIsDesktopPressed(true);
     desktopGestureRef.current = {
       active: true,
       didDrag: false,
@@ -297,7 +306,9 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
     if (g.didDrag) {
       const floatIdx = computeDesktopFloatIndex(e.clientY);
-      desktopTargetY.set(floatIdx * DESKTOP_STEP);
+      const yPx = floatIdx * DESKTOP_STEP;
+      desktopTargetY.set(yPx);
+      desktopSpringY.jump(yPx);
       const nearestIdx = Math.round(floatIdx);
       if (nearestIdx !== g.lastPreviewIdx) {
         g.lastPreviewIdx = nearestIdx;
@@ -311,6 +322,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
     const g = desktopGestureRef.current;
     if (!g.active) return;
     g.active = false;
+    setIsDesktopPressed(false);
     setIsDesktopScrubbing(false);
 
     if (cancelled) {
@@ -381,7 +393,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   const highlightedMobileIdx = isMobileScrubbing ? mobilePreviewIndex : mobileActiveIndex;
   const highlightedDesktopIdx = isDesktopScrubbing ? desktopPreviewIndex : desktopActiveIndex;
   const isDesktopHighlightAdmin = desktopTabs[highlightedDesktopIdx] === 'admin';
-  const showDesktopLens = activeTab !== 'settings' || isDesktopScrubbing;
+  const showDesktopLens = (activeTab !== 'settings' && activeTab !== 'downloads') || isDesktopScrubbing;
 
   return (
     <>
@@ -393,7 +405,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
           whileTap={{ scale: 0.92 }}
           onClick={() => onSelectTab('chat')}
           title="Automate AI Home"
-          className="w-11 h-11 rounded-2xl liquid-glass-orb flex items-center justify-center p-1.5 transition-all mb-2.5 relative shrink-0 group cursor-pointer"
+          className="w-11 h-11 rounded-2xl liquid-glass-orb flex items-center justify-center p-1.5 transition-colors duration-150 mb-2.5 relative shrink-0 group cursor-pointer"
         >
           <img
             src="/assets/aistudio/automate_ai_logo_transparent.png"
@@ -433,22 +445,29 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
               <motion.div
                 aria-hidden="true"
                 style={{ y: desktopSpringY, height: DESKTOP_ITEM_HEIGHT }}
-                animate={{
-                  scale: isDesktopScrubbing ? 1.1 : 1,
-                }}
-                transition={{
-                  type: 'spring',
-                  stiffness: 460,
-                  damping: 28,
-                }}
-                className={`pointer-events-none absolute top-0 inset-x-0 rounded-2xl z-0 ${
-                  isDesktopScrubbing
-                    ? 'liquid-glass-lens ring-1 ring-white/50 shadow-[0_12px_28px_-6px_rgba(124,58,237,0.35)]'
-                    : isDesktopHighlightAdmin
-                    ? 'bg-amber-400/22 border border-amber-300/50 shadow-[inset_0_1px_1.5px_rgba(255,255,255,0.55),0_6px_16px_-4px_rgba(245,158,11,0.25)]'
-                    : 'liquid-glass-droplet'
-                }`}
-              />
+                className="pointer-events-none absolute top-0 inset-x-0 z-0 will-change-transform"
+              >
+                <motion.span
+                  animate={{
+                    scale: isDesktopScrubbing ? 1.09 : isDesktopPressed ? 1.03 : 1,
+                  }}
+                  transition={{
+                    type: 'spring',
+                    stiffness: 760,
+                    damping: 38,
+                    mass: 0.38,
+                  }}
+                  className={`block w-full h-full rounded-2xl relative overflow-hidden ${
+                    isDesktopScrubbing
+                      ? 'liquid-glass-lens ring-1 ring-white/55 shadow-[0_12px_28px_-6px_rgba(124,58,237,0.36)]'
+                      : isDesktopHighlightAdmin
+                      ? 'bg-amber-400/22 border border-amber-300/50 shadow-[inset_0_1px_1.5px_rgba(255,255,255,0.55),0_6px_16px_-4px_rgba(245,158,11,0.25)]'
+                      : 'liquid-glass-droplet'
+                  }`}
+                >
+                  <span className="absolute inset-x-1.5 top-0.5 h-1/2 rounded-xl bg-gradient-to-b from-white/50 to-transparent dark:from-white/22 pointer-events-none" />
+                </motion.span>
+              </motion.div>
             )}
 
             {desktopTabs.map((tabId, idx) => {
@@ -502,6 +521,22 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         {/* Bottom Utility Cluster */}
         <div className="pt-2.5 w-full flex flex-col items-center gap-2 border-t border-slate-900/10 dark:border-white/10">
+          {onOpenDownloads && (
+            <motion.button
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={onOpenDownloads}
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                activeTab === 'downloads'
+                  ? 'liquid-glass-droplet text-violet-600 dark:text-violet-300'
+                  : 'liquid-glass-orb text-slate-600 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white'
+              }`}
+              title="Install Desktop & Mobile Apps"
+            >
+              <Download className="w-4 h-4 stroke-[1.9]" />
+            </motion.button>
+          )}
+
           {onOpenSearch && (
             <motion.button
               whileHover={{ scale: 1.08 }}
@@ -564,30 +599,46 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
                 className="fixed inset-0 bg-slate-950/20 backdrop-blur-[2px] z-30"
               />
               <motion.div
-                initial={{ opacity: 0, scale: 0.86, y: 18 }}
+                initial={{ opacity: 0, scale: 0.9, y: 12 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.88, y: 14 }}
-                transition={{ type: 'spring', stiffness: 440, damping: 30 }}
-                className="absolute bottom-14 right-0 left-0 z-40 liquid-glass-elevated rounded-[28px] p-3 grid grid-cols-3 gap-2 text-slate-900 dark:text-white"
+                exit={{ opacity: 0, scale: 0.92, y: 10 }}
+                transition={{ type: 'spring', stiffness: 680, damping: 36, mass: 0.5 }}
+                className="absolute bottom-14 right-0 left-0 z-40 liquid-glass-elevated rounded-[28px] p-3 space-y-2 text-slate-900 dark:text-white"
               >
-                {quickGridActions.map((action) => {
-                  const Icon = action.icon;
-                  return (
-                    <motion.button
-                      key={action.id}
-                      type="button"
-                      whileTap={{ scale: 0.93 }}
-                      onClick={() => {
-                        setShowQuickMenu(false);
-                        action.onClick();
-                      }}
-                      className="flex flex-col items-center justify-center gap-1.5 py-2.5 px-2 rounded-2xl liquid-glass-subtle hover:bg-white/60 dark:hover:bg-white/15 transition-colors cursor-pointer"
-                    >
-                      <Icon className="w-5 h-5 text-violet-600 dark:text-violet-300" />
-                      <span className="text-[11px] font-semibold">{action.label}</span>
-                    </motion.button>
-                  );
-                })}
+                <div className="grid grid-cols-3 gap-2">
+                  {quickGridActions.map((action) => {
+                    const Icon = action.icon;
+                    return (
+                      <motion.button
+                        key={action.id}
+                        type="button"
+                        whileTap={{ scale: 0.93 }}
+                        onClick={() => {
+                          setShowQuickMenu(false);
+                          action.onClick();
+                        }}
+                        className="flex flex-col items-center justify-center gap-1.5 py-2.5 px-2 rounded-2xl liquid-glass-subtle hover:bg-white/60 dark:hover:bg-white/15 transition-colors cursor-pointer"
+                      >
+                        <Icon className="w-5 h-5 text-violet-600 dark:text-violet-300" />
+                        <span className="text-[11px] font-semibold">{action.label}</span>
+                      </motion.button>
+                    );
+                  })}
+                </div>
+                {onOpenDownloads && (
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => {
+                      setShowQuickMenu(false);
+                      onOpenDownloads();
+                    }}
+                    className="w-full py-2 px-3 rounded-full liquid-glass-cta text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Install Native App (APK / Desktop / iOS)</span>
+                  </motion.button>
+                )}
               </motion.div>
             </>
           )}
@@ -614,22 +665,27 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
                   width: `${100 / FIXED_MOBILE_TABS.length}%`,
                   x: mobileLensX,
                 }}
-                animate={{
-                  scale: isMobileScrubbing ? 1.15 : 1,
-                  y: isMobileScrubbing ? -2 : 0,
-                }}
-                transition={{
-                  type: 'spring',
-                  stiffness: 460,
-                  damping: 26,
-                }}
-                className={`pointer-events-none absolute inset-y-0 left-0 rounded-full z-0 ${
-                  isMobileScrubbing
-                    ? 'liquid-glass-lens ring-1 ring-white/60 shadow-[0_10px_28px_-4px_rgba(124,58,237,0.38)]'
-                    : 'liquid-glass-droplet'
-                }`}
+                className="pointer-events-none absolute inset-y-0 left-0 z-0 will-change-transform"
               >
-                <span className="absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/55 to-transparent dark:from-white/25 pointer-events-none" />
+                <motion.span
+                  animate={{
+                    scale: isMobileScrubbing ? 1.14 : isMobilePressed ? 1.05 : 1,
+                    y: isMobileScrubbing ? -1.5 : 0,
+                  }}
+                  transition={{
+                    type: 'spring',
+                    stiffness: 760,
+                    damping: 38,
+                    mass: 0.38,
+                  }}
+                  className={`block w-full h-full rounded-full relative overflow-hidden ${
+                    isMobileScrubbing
+                      ? 'liquid-glass-lens ring-1 ring-white/60 shadow-[0_10px_28px_-4px_rgba(124,58,237,0.38)]'
+                      : 'liquid-glass-droplet'
+                  }`}
+                >
+                  <span className="absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/60 to-transparent dark:from-white/25 pointer-events-none" />
+                </motion.span>
               </motion.div>
             )}
 
@@ -686,7 +742,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
         >
           <motion.span
             animate={{ rotate: showQuickMenu ? 45 : 0 }}
-            transition={{ type: 'spring', stiffness: 460, damping: 26 }}
+            transition={{ type: 'spring', stiffness: 700, damping: 34 }}
             className="flex items-center justify-center"
           >
             <Plus className="w-5 h-5 stroke-[2.2]" />

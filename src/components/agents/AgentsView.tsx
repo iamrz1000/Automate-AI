@@ -193,9 +193,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               {activeTab === tab.id && (
                 <motion.span
                   layoutId="agents-active-tab"
-                  transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                  className="absolute inset-0 rounded-full liquid-glass-droplet"
-                />
+                  layout="position"
+                  transition={{ type: 'spring', stiffness: 760, damping: 42, mass: 0.42 }}
+                  className="absolute inset-0 rounded-full liquid-glass-droplet overflow-hidden"
+                >
+                  <span className="absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/55 to-transparent dark:from-white/25 pointer-events-none" />
+                </motion.span>
               )}
               <span className="relative z-10">{tab.label}</span>
             </motion.button>
@@ -205,9 +208,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         {/* Promotional Glass Banner */}
         {activeTab === 'explore' && (
           <motion.div
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.24 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
             className="w-full rounded-[28px] liquid-glass-card p-5 sm:p-6 flex items-center justify-between relative overflow-hidden"
           >
             <div className="pointer-events-none absolute -right-12 -top-12 w-56 h-56 rounded-full bg-gradient-to-br from-violet-500/25 via-indigo-500/20 to-sky-400/20 blur-2xl" />
@@ -253,9 +256,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                   {active && (
                     <motion.span
                       layoutId="agents-active-category"
-                      transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                      className="absolute inset-0 rounded-full liquid-glass-droplet"
-                    />
+                      layout="position"
+                      transition={{ type: 'spring', stiffness: 760, damping: 42, mass: 0.42 }}
+                      className="absolute inset-0 rounded-full liquid-glass-droplet overflow-hidden"
+                    >
+                      <span className="absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/55 to-transparent dark:from-white/25 pointer-events-none" />
+                    </motion.span>
                   )}
                   <span className="relative z-10">{cat}</span>
                 </motion.button>

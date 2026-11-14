@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatMessage } from '../../types';
+import { apiUrl } from '../../utils/platform';
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -88,7 +89,7 @@ const TypewriterMarkdown: React.FC<TypewriterMarkdownProps> = ({
         return (
           <code
             key={i}
-            className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/10 text-purple-600 dark:text-purple-300 font-mono text-[13px] border border-gray-200/80 dark:border-white/10"
+            className="px-1.5 py-0.5 rounded-md liquid-glass-subtle text-violet-700 dark:text-violet-300 font-mono text-[13px]"
           >
             {chunk.slice(1, -1)}
           </code>
@@ -224,7 +225,7 @@ const TypewriterMarkdown: React.FC<TypewriterMarkdownProps> = ({
         );
       } else if (line.startsWith('> ')) {
         elements.push(
-          <blockquote key={idx} className="border-l-2 border-purple-500 pl-3 py-1 my-2 text-gray-600 dark:text-gray-300 italic bg-purple-50/40 dark:bg-purple-950/20 rounded-r-lg text-[14px]">
+          <blockquote key={idx} className="border-l-2 border-violet-500 pl-3.5 py-1.5 my-2.5 text-slate-700 dark:text-slate-200 italic liquid-glass-subtle rounded-r-xl text-[14px]">
             {parseInlineMarkdown(line.slice(2))}
           </blockquote>
         );
@@ -289,7 +290,7 @@ const TypewriterMarkdown: React.FC<TypewriterMarkdownProps> = ({
               key={index}
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
-              className="my-3.5 rounded-2xl overflow-hidden border border-slate-900/15 dark:border-white/15 bg-slate-900/90 dark:bg-[#0d0e18]/85 backdrop-blur-xl shadow-md font-mono text-xs"
+              className="my-3.5 rounded-[20px] overflow-hidden border border-slate-900/15 dark:border-white/15 bg-slate-900/92 dark:bg-[#0b0c18]/88 backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_12px_32px_-10px_rgba(15,23,42,0.35)] font-mono text-xs"
             >
               <div className="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/10 text-slate-300">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-violet-300">
@@ -412,7 +413,7 @@ export const MessageList: React.FC<MessageListProps> = ({
       if (onGenerateVariation) {
         onGenerateVariation(prompt, aspectRatio);
       } else {
-        const res = await fetch('/api/generate-image', {
+        const res = await fetch(apiUrl('/api/generate-image'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt, aspectRatio }),
@@ -444,14 +445,14 @@ export const MessageList: React.FC<MessageListProps> = ({
     .map((m) => m.id);
 
   const messageBubbleVariants = {
-    hidden: { opacity: 0, y: 10 },
+    hidden: { opacity: 0, y: 8 },
     visible: (batchIndex: number) => ({
       opacity: 1,
       y: 0,
       transition: {
-        duration: 0.34,
-        delay: Math.min(Math.max(batchIndex, 0) * 0.065, 0.38),
-        ease: [0.16, 1, 0.3, 1] as const,
+        duration: 0.24,
+        delay: Math.min(Math.max(batchIndex, 0) * 0.045, 0.28),
+        ease: [0.22, 1, 0.36, 1] as const,
       },
     }),
   };

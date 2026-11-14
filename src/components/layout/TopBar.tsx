@@ -85,7 +85,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             whileTap={{ scale: 0.94 }}
             whileHover={{ scale: 1.03 }}
             onClick={onNavigateToAdmin}
-            className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-400/40 backdrop-blur-md shadow-[inset_0_1px_1px_rgba(255,255,255,0.45)] transition-all cursor-pointer shrink-0"
+            className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-400/40 backdrop-blur-md shadow-[inset_0_1px_1px_rgba(255,255,255,0.45)] transition-colors duration-150 cursor-pointer shrink-0"
             title="Open Admin Governance Center"
           >
             <Crown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500 dark:text-amber-300 fill-amber-400 shrink-0" />

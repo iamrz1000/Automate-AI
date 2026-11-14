@@ -97,7 +97,7 @@ export const ConnectorsSheetModal: React.FC<ConnectorsSheetModalProps> = ({
             initial={{ opacity: 0, scale: 0.94, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 8 }}
-            transition={{ type: 'spring', damping: 26, stiffness: 340 }}
+            transition={{ type: 'spring', damping: 34, stiffness: 580, mass: 0.45 }}
             onClick={(e) => e.stopPropagation()}
             className="liquid-glass-elevated text-slate-900 dark:text-white rounded-[30px] max-w-2xl w-full p-4 sm:p-5 relative max-h-[86vh] flex flex-col transition-colors"
           >
@@ -128,9 +128,12 @@ export const ConnectorsSheetModal: React.FC<ConnectorsSheetModalProps> = ({
                     {tab === t && (
                       <motion.div
                         layoutId="connectors-sheet-tab"
-                        transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                        className="absolute inset-0 rounded-full liquid-glass-droplet"
-                      />
+                        layout="position"
+                        transition={{ type: 'spring', stiffness: 760, damping: 42, mass: 0.42 }}
+                        className="absolute inset-0 rounded-full liquid-glass-droplet overflow-hidden"
+                      >
+                        <span className="absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/55 to-transparent dark:from-white/25 pointer-events-none" />
+                      </motion.div>
                     )}
                     <span className="relative z-10">{t}</span>
                   </button>
@@ -193,7 +196,7 @@ export const ConnectorsSheetModal: React.FC<ConnectorsSheetModalProps> = ({
                         <motion.button
                           whileTap={{ scale: 0.94 }}
                           onClick={() => toggleConnect(item.id)}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold transition-all shrink-0 cursor-pointer ${
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors duration-150 shrink-0 cursor-pointer ${
                             isConnected
                               ? 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-700 dark:text-emerald-300 flex items-center gap-1'
                               : 'liquid-glass-cta'

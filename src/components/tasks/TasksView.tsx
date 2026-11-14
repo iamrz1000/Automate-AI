@@ -102,9 +102,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 {active && (
                   <motion.span
                     layoutId="tasks-filter-droplet"
-                    transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                    className="absolute inset-0 rounded-full liquid-glass-droplet"
-                  />
+                    layout="position"
+                    transition={{ type: 'spring', stiffness: 760, damping: 42, mass: 0.42 }}
+                    className="absolute inset-0 rounded-full liquid-glass-droplet overflow-hidden"
+                  >
+                    <span className="absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/55 to-transparent dark:from-white/25 pointer-events-none" />
+                  </motion.span>
                 )}
                 <span className="relative z-10">{opt}</span>
               </motion.button>
