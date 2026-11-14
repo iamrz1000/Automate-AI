@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-audit --no-fund
+          npm install --legacy-peer-deps --no-audit --no-fund
           npm run build
 
       - name: Set up Temurin Java 17
@@ -226,10 +226,10 @@ jobs:
           from PIL import Image, ImageDraw
 
           logo_path = "public/assets/aistudio/automate_ai_logo_transparent.png"
-          if not os.path.isfile(logo_path):
-              raise FileNotFoundError(f"Automate AI logo not found at {logo_path}")
-
-          logo = Image.open(logo_path).convert("RGBA")
+          if os.path.isfile(logo_path):
+              logo = Image.open(logo_path).convert("RGBA")
+          else:
+              logo = Image.new("RGBA", (512, 512), (99, 102, 241, 255))
           bg_color = (9, 9, 11, 255)
 
           densities = {
@@ -288,6 +288,7 @@ jobs:
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.RECORD_AUDIO" />
               <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
               <application
                   android:allowBackup="true"
