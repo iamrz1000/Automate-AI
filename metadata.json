@@ -1,0 +1,6 @@
+{
+  "name": "Ashna AI - Multi-Model AI Workspace",
+  "description": "Premium multi-model AI workspace featuring intelligent chat, autonomous agents, scheduled background tasks, workflow builder, asset library, and model discovery.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
