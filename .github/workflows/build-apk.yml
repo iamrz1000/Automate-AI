@@ -20,6 +20,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Node.js and build Automate AI web bundle
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Automate AI frontend assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run build
+
       - name: Set up Temurin Java 17
         uses: actions/setup-java@v4
         with:
@@ -60,6 +72,441 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+
+      - name: Prepare Automate AI Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Accept Android SDK licenses if sdkmanager is available on the runner
+          if [ -n "${ANDROID_HOME:-}" ] && [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          fi
+
+          # Scaffold Gradle + AGP 9.1.1 Android :app wrapper when the repo only contains web source
+          if [ ! -f "app/build.gradle.kts" ] && [ ! -f "app/build.gradle" ]; then
+            mkdir -p gradle
+            cat > gradle/libs.versions.toml <<'EOF'
+          [versions]
+          agp = "9.1.1"
+
+          [plugins]
+          android-application = { id = "com.android.application", version.ref = "agp" }
+          EOF
+
+            cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          EOF
+
+            cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "Automate-AI"
+          include(":app")
+          EOF
+
+            cat > build.gradle.kts <<'EOF'
+          plugins {
+              alias(libs.plugins.android.application) apply false
+          }
+          EOF
+
+            mkdir -p app
+            cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              alias(libs.plugins.android.application)
+          }
+
+          android {
+              namespace = "com.automateai.app"
+              compileSdk = 36
+
+              defaultConfig {
+                  applicationId = "com.automateai.app"
+                  minSdk = 24
+                  targetSdk = 36
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              signingConfigs {
+                  getByName("debug") {
+                      val ks = rootProject.file("debug.keystore")
+                      if (ks.exists()) {
+                          storeFile = ks
+                          storePassword = "android"
+                          keyAlias = "androiddebugkey"
+                          keyPassword = "android"
+                      }
+                  }
+              }
+
+              buildTypes {
+                  debug {
+                      signingConfig = signingConfigs.getByName("debug")
+                  }
+                  release {
+                      isMinifyEnabled = false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+          }
+          EOF
+          fi
+
+          # Populate Android resources, Automate AI branding, logo icons, and bundled web assets
+          mkdir -p app/src/main/java/com/automateai/app \
+                   app/src/main/res/values \
+                   app/src/main/res/mipmap-anydpi-v26 \
+                   app/src/main/assets/www
+
+          if [ -d "dist" ]; then
+            rm -rf app/src/main/assets/www/*
+            cp -r dist/. app/src/main/assets/www/
+          fi
+
+          cat > app/src/main/res/values/colors.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#09090B</color>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Automate AI</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.AutomateAI" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <item name="android:windowBackground">@color/ic_launcher_background</item>
+                  <item name="android:statusBarColor">@color/ic_launcher_background</item>
+                  <item name="android:navigationBarColor">@color/ic_launcher_background</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background" />
+              <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+
+          cp app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml \
+             app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+          # Generate Android launcher icons from the Automate AI logo
+          python3 -m venv "${RUNNER_TEMP}/pyvenv"
+          "${RUNNER_TEMP}/pyvenv/bin/pip" install --quiet pillow
+          "${RUNNER_TEMP}/pyvenv/bin/python" - <<'PYEOF'
+          import os
+          from PIL import Image, ImageDraw
+
+          logo_path = "public/assets/aistudio/automate_ai_logo_transparent.png"
+          if not os.path.isfile(logo_path):
+              raise FileNotFoundError(f"Automate AI logo not found at {logo_path}")
+
+          logo = Image.open(logo_path).convert("RGBA")
+          bg_color = (9, 9, 11, 255)
+
+          densities = {
+              "mdpi": (48, 108),
+              "hdpi": (72, 162),
+              "xhdpi": (96, 216),
+              "xxhdpi": (144, 324),
+              "xxxhdpi": (192, 432),
+          }
+
+          for density, (icon_px, fg_px) in densities.items():
+              out_dir = f"app/src/main/res/mipmap-{density}"
+              os.makedirs(out_dir, exist_ok=True)
+
+              # Adaptive foreground (transparent canvas with logo scaled to safe zone)
+              fg_canvas = Image.new("RGBA", (fg_px, fg_px), (0, 0, 0, 0))
+              safe_size = int(fg_px * 0.62)
+              resized_fg = logo.resize((safe_size, safe_size), Image.Resampling.LANCZOS)
+              offset_fg = ((fg_px - safe_size) // 2, (fg_px - safe_size) // 2)
+              fg_canvas.paste(resized_fg, offset_fg, resized_fg)
+              fg_canvas.save(os.path.join(out_dir, "ic_launcher_foreground.png"), "PNG")
+
+              # Legacy square rounded icon
+              sq = Image.new("RGBA", (icon_px, icon_px), (0, 0, 0, 0))
+              sq_bg = Image.new("RGBA", (icon_px, icon_px), bg_color)
+              sq_mask = Image.new("L", (icon_px, icon_px), 0)
+              ImageDraw.Draw(sq_mask).rounded_rectangle(
+                  [0, 0, icon_px - 1, icon_px - 1],
+                  radius=max(4, int(icon_px * 0.22)),
+                  fill=255,
+              )
+              sq.paste(sq_bg, (0, 0), sq_mask)
+              legacy_logo_size = int(icon_px * 0.72)
+              resized_legacy = logo.resize((legacy_logo_size, legacy_logo_size), Image.Resampling.LANCZOS)
+              offset_legacy = ((icon_px - legacy_logo_size) // 2, (icon_px - legacy_logo_size) // 2)
+              sq.paste(resized_legacy, offset_legacy, resized_legacy)
+              sq.save(os.path.join(out_dir, "ic_launcher.png"), "PNG")
+
+              # Legacy circular icon
+              rd = Image.new("RGBA", (icon_px, icon_px), (0, 0, 0, 0))
+              rd_mask = Image.new("L", (icon_px, icon_px), 0)
+              ImageDraw.Draw(rd_mask).ellipse([0, 0, icon_px - 1, icon_px - 1], fill=255)
+              rd.paste(sq_bg, (0, 0), rd_mask)
+              rd.paste(resized_legacy, offset_legacy, resized_legacy)
+              rd.save(os.path.join(out_dir, "ic_launcher_round.png"), "PNG")
+
+          print("Generated Automate AI launcher icons across all mipmap densities.")
+          PYEOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.AutomateAI"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+                      android:exported="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/automateai/app/MainActivity.java <<'EOF'
+          package com.automateai.app;
+
+          import android.Manifest;
+          import android.annotation.SuppressLint;
+          import android.app.Activity;
+          import android.app.DownloadManager;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.graphics.Color;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Environment;
+          import android.view.Window;
+          import android.view.WindowManager;
+          import android.webkit.CookieManager;
+          import android.webkit.DownloadListener;
+          import android.webkit.PermissionRequest;
+          import android.webkit.URLUtil;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+
+          import java.util.ArrayList;
+          import java.util.List;
+
+          public class MainActivity extends Activity {
+
+              private static final String LIVE_APP_URL = "https://ais-pre-vtowivipoo5oo4ojwcooaz-190037377446.asia-east1.run.app";
+              private static final String LOCAL_FALLBACK_URL = "file:///android_asset/www/index.html";
+              private static final int REQ_FILE_CHOOSER = 1001;
+              private static final int REQ_MEDIA_PERMISSIONS = 1002;
+
+              private WebView webView;
+              private ValueCallback<Uri[]> filePathCallback;
+              private PermissionRequest pendingPermissionRequest;
+              private boolean loadedFallback = false;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  Window window = getWindow();
+                  window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                  window.setStatusBarColor(Color.parseColor("#09090B"));
+                  window.setNavigationBarColor(Color.parseColor("#09090B"));
+
+                  webView = new WebView(this);
+                  webView.setBackgroundColor(Color.parseColor("#09090B"));
+                  setContentView(webView);
+
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setAllowContentAccess(true);
+                  settings.setMediaPlaybackRequiresUserGesture(false);
+                  settings.setLoadWithOverviewMode(true);
+                  settings.setUseWideViewPort(true);
+
+                  String ua = settings.getUserAgentString();
+                  if (ua != null) {
+                      settings.setUserAgentString(ua.replace("; wv)", ")"));
+                  }
+
+                  CookieManager cookieManager = CookieManager.getInstance();
+                  cookieManager.setAcceptCookie(true);
+                  cookieManager.setAcceptThirdPartyCookies(webView, true);
+
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                          if (!loadedFallback && request != null && request.isForMainFrame()) {
+                              String failingUrl = request.getUrl() != null ? request.getUrl().toString() : "";
+                              if (!failingUrl.startsWith("file:///android_asset/")) {
+                                  loadedFallback = true;
+                                  view.loadUrl(LOCAL_FALLBACK_URL);
+                              }
+                          }
+                      }
+                  });
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onPermissionRequest(final PermissionRequest request) {
+                          runOnUiThread(() -> handleWebPermissionRequest(request));
+                      }
+
+                      @Override
+                      public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams fileChooserParams) {
+                          if (filePathCallback != null) {
+                              filePathCallback.onReceiveValue(null);
+                          }
+                          filePathCallback = callback;
+                          try {
+                              Intent intent = fileChooserParams.createIntent();
+                              startActivityForResult(intent, REQ_FILE_CHOOSER);
+                          } catch (Exception e) {
+                              Intent fallbackIntent = new Intent(Intent.ACTION_GET_CONTENT);
+                              fallbackIntent.addCategory(Intent.CATEGORY_OPENABLE);
+                              fallbackIntent.setType("*/*");
+                              startActivityForResult(Intent.createChooser(fallbackIntent, "Select File"), REQ_FILE_CHOOSER);
+                          }
+                          return true;
+                      }
+                  });
+
+                  webView.setDownloadListener(new DownloadListener() {
+                      @Override
+                      public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
+                          if (url == null || !url.startsWith("http")) {
+                              return;
+                          }
+                          try {
+                              DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
+                              req.setMimeType(mimeType);
+                              req.addRequestHeader("User-Agent", userAgent);
+                              String filename = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                              req.setTitle(filename);
+                              req.setDescription("Downloading from Automate AI");
+                              req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                              req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
+                              DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                              if (dm != null) {
+                                  dm.enqueue(req);
+                                  Toast.makeText(MainActivity.this, "Downloading " + filename, Toast.LENGTH_SHORT).show();
+                              }
+                          } catch (Exception e) {
+                              Toast.makeText(MainActivity.this, "Download failed", Toast.LENGTH_SHORT).show();
+                          }
+                      }
+                  });
+
+                  webView.loadUrl(LIVE_APP_URL);
+              }
+
+              private void handleWebPermissionRequest(PermissionRequest request) {
+                  List<String> needed = new ArrayList<>();
+                  for (String res : request.getResources()) {
+                      if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)
+                              && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                          needed.add(Manifest.permission.RECORD_AUDIO);
+                      }
+                      if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res)
+                              && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                          needed.add(Manifest.permission.CAMERA);
+                      }
+                  }
+                  if (needed.isEmpty()) {
+                      request.grant(request.getResources());
+                  } else {
+                      pendingPermissionRequest = request;
+                      requestPermissions(needed.toArray(new String[0]), REQ_MEDIA_PERMISSIONS);
+                  }
+              }
+
+              @Override
+              public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+                  if (requestCode == REQ_MEDIA_PERMISSIONS && pendingPermissionRequest != null) {
+                      pendingPermissionRequest.grant(pendingPermissionRequest.getResources());
+                      pendingPermissionRequest = null;
+                  }
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == REQ_FILE_CHOOSER) {
+                      if (filePathCallback == null) {
+                          return;
+                      }
+                      Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                      filePathCallback.onReceiveValue(results);
+                      filePathCallback = null;
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
 
       - name: Create temporary debug keystore
         shell: bash
