@@ -34,7 +34,7 @@ import { AuthView } from './components/auth/AuthView';
 import { AdminView } from './components/admin/AdminView';
 import { LiquidSearchOverlay } from './components/common/LiquidSearchOverlay';
 import { LiveConversationModal } from './components/chat/LiveConversationModal';
-import { LiquidGlassCardRefraction } from './components/common/LiquidGlassPrimitives';
+import { LiquidGlassCardRefraction, LiquidInteractionFeedback } from './components/common/LiquidGlassPrimitives';
 import { triggerHaptic, getGlassHapticStyle } from './utils/haptics';
 import {
   apiUrl,
@@ -578,6 +578,7 @@ export default function App() {
     <div className="liquid-ambient-canvas flex app-viewport-height w-full max-w-full overflow-hidden text-slate-900 dark:text-slate-50 select-none md:p-2.5 md:gap-2.5 relative">
       {/* Animated Cursor-Tracking Radial Liquid Light Refraction across all .liquid-glass-card elements */}
       <LiquidGlassCardRefraction />
+      <LiquidInteractionFeedback />
 
       {/* Subtle Radial Atmospheric Wash on Light <-> Dark Transition */}
       <AnimatePresence mode="popLayout">

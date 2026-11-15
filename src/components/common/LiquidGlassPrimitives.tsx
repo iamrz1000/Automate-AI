@@ -456,3 +456,144 @@ export const LiquidGlassCard: React.FC<LiquidGlassCardProps> = ({
     </div>
   );
 };
+
+/**
+ * Global Liquid Ripple Feedback Layer.
+ * Spawns zero-re-render GPU liquid/ripple effects on interactive buttons, orbs, and glass cards.
+ */
+export const LiquidInteractionFeedback: React.FC = () => {
+  useEffect(() => {
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.button > 0) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      const interactiveEl = target.closest<HTMLElement>(
+        'button, [role="button"], .liquid-glass-orb, .liquid-glass-cta, .liquid-glass-card'
+      );
+      if (!interactiveEl) return;
+      if (
+        (interactiveEl as HTMLButtonElement).disabled ||
+        interactiveEl.getAttribute('aria-disabled') === 'true' ||
+        interactiveEl.classList.contains('cursor-not-allowed')
+      ) {
+        return;
+      }
+
+      const style = window.getComputedStyle(interactiveEl);
+      const canContainRipple =
+        (style.position === 'relative' || style.position === 'absolute') &&
+        style.overflow === 'hidden';
+
+      if (canContainRipple) {
+        const rect = interactiveEl.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height, 44) * 1.15;
+        const ripple = document.createElement('span');
+        ripple.className = 'liquid-ripple-wave';
+        ripple.style.width = `${size}px`;
+        ripple.style.height = `${size}px`;
+        ripple.style.left = `${e.clientX - rect.left}px`;
+        ripple.style.top = `${e.clientY - rect.top}px`;
+        interactiveEl.appendChild(ripple);
+        ripple.addEventListener('animationend', () => ripple.remove(), { once: true });
+        window.setTimeout(() => {
+          if (ripple.isConnected) ripple.remove();
+        }, 600);
+      } else {
+        const ring = document.createElement('span');
+        ring.className = 'liquid-ripple-viewport-ring';
+        ring.style.left = `${e.clientX}px`;
+        ring.style.top = `${e.clientY}px`;
+        document.body.appendChild(ring);
+        ring.addEventListener('animationend', () => ring.remove(), { once: true });
+        window.setTimeout(() => {
+          if (ring.isConnected) ring.remove();
+        }, 520);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, { passive: true, capture: true });
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, []);
+
+  return null;
+};
+
+interface AiProcessingCoreProps {
+  compact?: boolean;
+  label?: string;
+}
+
+/**
+ * Minimalist Frosted Liquid Glass "Pulsing Core + Fluid Waveform" micro-animation
+ * for AI thinking/processing and live voice listening states.
+ */
+export const AiProcessingCore: React.FC<AiProcessingCoreProps> = ({
+  compact = false,
+  label = 'Thinking',
+}) => {
+  if (compact) {
+    return (
+      <div className="inline-flex items-center gap-2 text-violet-600 dark:text-violet-300">
+        <span className="relative flex h-3 w-3 items-center justify-center shrink-0">
+          <span className="ai-core-halo absolute inset-0 rounded-full bg-violet-400/50" />
+          <span className="ai-core-orb relative h-2 w-2 rounded-full bg-gradient-to-tr from-violet-500 to-sky-400 shadow-[0_0_8px_rgba(139,92,246,0.65)]" />
+        </span>
+        <div className="flex items-center gap-[2.5px] h-3" aria-hidden="true">
+          {[0, 0.14, 0.28, 0.42].map((delay, idx) => (
+            <span
+              key={idx}
+              style={{ animationDelay: `${delay}s` }}
+              className="ai-wave-bar w-[2px] h-3 rounded-full bg-gradient-to-t from-violet-500/80 to-sky-400/90"
+            />
+          ))}
+        </div>
+        <span className="text-[11px] font-medium">{label}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3.5 py-2.5 select-none">
+      {/* Pulsing Concentric Frosted Core */}
+      <div className="relative flex h-9 w-9 items-center justify-center shrink-0">
+        <span className="ai-core-halo absolute inset-0 rounded-full border border-violet-400/45 bg-violet-400/15" />
+        <span
+          className="ai-core-halo absolute inset-1 rounded-full bg-sky-400/20"
+          style={{ animationDelay: '0.45s' }}
+        />
+        <span className="ai-core-orb relative flex h-5 w-5 items-center justify-center rounded-full liquid-glass-droplet">
+          <span className="h-2.5 w-2.5 rounded-full bg-gradient-to-tr from-violet-600 via-indigo-500 to-sky-400 shadow-[0_0_12px_rgba(139,92,246,0.7)]" />
+        </span>
+      </div>
+
+      {/* Organic Fluid Harmonic Waveform */}
+      <div className="flex items-center gap-1 h-5 px-3 py-1 rounded-full liquid-glass-subtle">
+        {[
+          { delay: '0s', h: 'h-2.5' },
+          { delay: '0.12s', h: 'h-3.5' },
+          { delay: '0.24s', h: 'h-4' },
+          { delay: '0.36s', h: 'h-3' },
+          { delay: '0.48s', h: 'h-2' },
+        ].map((bar, idx) => (
+          <span
+            key={idx}
+            style={{ animationDelay: bar.delay }}
+            className={`ai-wave-bar w-[3px] ${bar.h} rounded-full bg-gradient-to-t from-violet-500 via-indigo-400 to-sky-400`}
+          />
+        ))}
+        <span className="ml-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+          {label}…
+        </span>
+      </div>
+    </div>
+  );
+};
+

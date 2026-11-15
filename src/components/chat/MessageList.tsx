@@ -22,6 +22,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatMessage } from '../../types';
 import { apiUrl } from '../../utils/platform';
+import { AiProcessingCore } from '../common/LiquidGlassPrimitives';
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -57,25 +58,9 @@ const TypewriterMarkdown: React.FC<TypewriterMarkdownProps> = React.memo(({
   // Instant token streaming like ChatGPT and Claude with zero artificial lag
   const visibleText = content;
 
-  // Waiting for first token state: classic 3-dot thinking pulse
+  // Waiting for first token state: Liquid Glass Pulsing Core + Fluid Waveform
   if (!visibleText && isStreaming) {
-    return (
-      <div className="flex items-center gap-1.5 py-3">
-        {[0, 1, 2].map((i) => (
-          <motion.span
-            key={i}
-            animate={{ y: [0, -6, 0], opacity: [0.35, 1, 0.35] }}
-            transition={{
-              duration: 0.8,
-              repeat: Infinity,
-              delay: i * 0.16,
-              ease: 'easeInOut',
-            }}
-            className="w-2 h-2 rounded-full bg-purple-500 dark:bg-purple-400"
-          />
-        ))}
-      </div>
-    );
+    return <AiProcessingCore label="Thinking" />;
   }
 
   // Parse inline markdown: bold, italic, code
@@ -432,10 +417,7 @@ const MessageRow: React.FC<MessageRowProps> = React.memo(({
               </div>
 
               {message.isStreaming && (
-                <div className="flex items-center gap-1.5 text-violet-600 dark:text-violet-300 font-medium text-[11px]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-ping" />
-                  <span>Generating</span>
-                </div>
+                <AiProcessingCore compact label={message.content ? 'Generating' : 'Processing'} />
               )}
             </div>
 

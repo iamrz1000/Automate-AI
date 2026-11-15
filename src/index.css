@@ -90,14 +90,40 @@
     color 0.18s ease;
 }
 
-/* Atmospheric Volumetric Backdrop Mesh so Glass Refracts Real Depth */
+/* Atmospheric Volumetric Backdrop Mesh + Dynamic Fluid Ambient Lighting */
 .liquid-ambient-canvas {
+  position: relative;
+  isolation: isolate;
   background-color: #eef3fb;
   background-image:
     radial-gradient(62% 54% at 14% 12%, rgba(125, 211, 252, 0.48) 0%, transparent 70%),
     radial-gradient(56% 52% at 86% 14%, rgba(196, 181, 253, 0.46) 0%, transparent 70%),
     radial-gradient(58% 48% at 78% 86%, rgba(167, 243, 208, 0.34) 0%, transparent 70%),
     radial-gradient(52% 48% at 18% 84%, rgba(251, 207, 232, 0.32) 0%, transparent 70%);
+}
+
+.liquid-ambient-canvas::before,
+.liquid-ambient-canvas::after {
+  content: "";
+  position: fixed;
+  inset: -18%;
+  z-index: -1;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.liquid-ambient-canvas::before {
+  background:
+    radial-gradient(38% 36% at 22% 28%, rgba(56, 189, 248, 0.24) 0%, transparent 72%),
+    radial-gradient(36% 38% at 78% 68%, rgba(139, 92, 246, 0.22) 0%, transparent 72%);
+  animation: fluid-ambient-drift-a 20s ease-in-out infinite alternate;
+}
+
+.liquid-ambient-canvas::after {
+  background:
+    radial-gradient(34% 34% at 74% 22%, rgba(236, 72, 153, 0.14) 0%, transparent 72%),
+    radial-gradient(40% 34% at 26% 78%, rgba(16, 185, 129, 0.16) 0%, transparent 72%);
+  animation: fluid-ambient-drift-b 26s ease-in-out infinite alternate;
 }
 
 html.dark .liquid-ambient-canvas {
@@ -107,6 +133,48 @@ html.dark .liquid-ambient-canvas {
     radial-gradient(54% 50% at 86% 18%, rgba(147, 51, 234, 0.24) 0%, transparent 68%),
     radial-gradient(52% 46% at 80% 86%, rgba(14, 165, 233, 0.17) 0%, transparent 68%),
     radial-gradient(48% 46% at 16% 84%, rgba(16, 185, 129, 0.11) 0%, transparent 68%);
+}
+
+html.dark .liquid-ambient-canvas::before {
+  background:
+    radial-gradient(38% 36% at 24% 24%, rgba(99, 102, 241, 0.24) 0%, transparent 72%),
+    radial-gradient(38% 38% at 76% 72%, rgba(168, 85, 247, 0.22) 0%, transparent 72%);
+}
+
+html.dark .liquid-ambient-canvas::after {
+  background:
+    radial-gradient(34% 34% at 78% 22%, rgba(56, 189, 248, 0.16) 0%, transparent 72%),
+    radial-gradient(36% 36% at 20% 80%, rgba(16, 185, 129, 0.13) 0%, transparent 72%);
+}
+
+@keyframes fluid-ambient-drift-a {
+  0% {
+    transform: translate3d(-2%, -1.5%, 0) scale(1) rotate(0deg);
+    opacity: 0.78;
+  }
+  50% {
+    transform: translate3d(2.5%, 1.5%, 0) scale(1.06) rotate(4deg);
+    opacity: 0.96;
+  }
+  100% {
+    transform: translate3d(-1.5%, 2.5%, 0) scale(1.02) rotate(-3deg);
+    opacity: 0.84;
+  }
+}
+
+@keyframes fluid-ambient-drift-b {
+  0% {
+    transform: translate3d(2%, 1.5%, 0) scale(1.03) rotate(0deg);
+    opacity: 0.72;
+  }
+  50% {
+    transform: translate3d(-2.5%, -1.5%, 0) scale(0.98) rotate(-5deg);
+    opacity: 0.94;
+  }
+  100% {
+    transform: translate3d(1.5%, -2%, 0) scale(1.05) rotate(3deg);
+    opacity: 0.8;
+  }
 }
 
 /* Primary Translucent Liquid Glass Surface (Docks, Rails, Top Bars, Sidebars) */
@@ -135,7 +203,7 @@ html.dark .liquid-ambient-canvas {
     var(--lg-shadow-elevated);
 }
 
-/* Liquid Glass Card / Widget */
+/* Liquid Glass Card / Floating Widget */
 .liquid-glass-card {
   position: relative;
   overflow: hidden;
@@ -147,7 +215,13 @@ html.dark .liquid-ambient-canvas {
     inset 0 1.5px 0.5px var(--lg-specular),
     inset 0 -1px 0.5px var(--lg-fresnel),
     inset 0 0 0 0.5px var(--lg-inner-rim),
-    0 10px 30px -12px rgba(15, 23, 42, 0.14);
+    0 12px 32px -10px rgba(15, 23, 42, 0.14),
+    0 4px 12px -4px rgba(15, 23, 42, 0.06);
+  transition:
+    transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.22s ease,
+    box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.32s ease;
 }
 
 html.dark .liquid-glass-card {
@@ -155,7 +229,8 @@ html.dark .liquid-glass-card {
     inset 0 1.5px 0.5px var(--lg-specular),
     inset 0 -1px 0.5px var(--lg-fresnel),
     inset 0 0 0 0.5px var(--lg-inner-rim),
-    0 12px 32px -12px rgba(0, 0, 0, 0.56);
+    0 16px 38px -10px rgba(0, 0, 0, 0.6),
+    0 4px 14px -4px rgba(0, 0, 0, 0.36);
 }
 
 .liquid-glass-card:hover {
@@ -164,7 +239,8 @@ html.dark .liquid-glass-card {
     inset 0 1.5px 1px var(--lg-specular),
     inset 0 -1px 1px var(--lg-fresnel),
     inset 0 0 0 0.5px rgba(255, 255, 255, 0.4),
-    0 14px 36px -12px rgba(79, 70, 229, 0.18);
+    0 20px 44px -12px rgba(79, 70, 229, 0.2),
+    0 8px 18px -6px rgba(15, 23, 42, 0.09);
 }
 
 html.dark .liquid-glass-card:hover {
@@ -173,7 +249,12 @@ html.dark .liquid-glass-card:hover {
     inset 0 1.5px 1px rgba(255, 255, 255, 0.52),
     inset 0 -1px 1px var(--lg-fresnel),
     inset 0 0 0 0.5px rgba(255, 255, 255, 0.16),
-    0 16px 38px -12px rgba(0, 0, 0, 0.68);
+    0 22px 46px -12px rgba(0, 0, 0, 0.72),
+    0 8px 20px -6px rgba(139, 92, 246, 0.18);
+}
+
+.liquid-glass-float:hover {
+  transform: translate3d(0, -2px, 0);
 }
 
 /* Subtle Recessed / Nested Glass Well (Stats, Code blocks, Tags) */
@@ -431,6 +512,195 @@ html {
 
 .streaming-caret {
   animation: caret-blink 0.85s ease-in-out infinite;
+}
+
+/* ============================================================
+   VOICE & TYPING REACTIVE GLOWING BORDERS
+   ============================================================ */
+.chat-reactive-shell {
+  position: relative;
+}
+
+.chat-reactive-border-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+  border-radius: inherit;
+  border: 1.5px solid transparent;
+  opacity: 0;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.chat-reactive-shell.is-typing .chat-reactive-border-glow {
+  opacity: 0.72;
+  border-color: rgba(139, 92, 246, 0.38);
+  box-shadow:
+    inset 0 0 22px rgba(139, 92, 246, 0.12),
+    0 0 18px -4px rgba(139, 92, 246, 0.2);
+}
+
+.chat-reactive-shell.is-processing .chat-reactive-border-glow {
+  opacity: 0.85;
+  border-color: rgba(99, 102, 241, 0.48);
+  box-shadow:
+    inset 0 0 28px rgba(99, 102, 241, 0.16),
+    0 0 24px -4px rgba(56, 189, 248, 0.24);
+  animation: reactive-border-breathe 1.8s ease-in-out infinite;
+}
+
+.chat-reactive-shell.is-listening .chat-reactive-border-glow {
+  opacity: 1;
+  border-color: rgba(56, 189, 248, 0.65);
+  box-shadow:
+    inset 0 0 34px rgba(56, 189, 248, 0.22),
+    inset 0 0 12px rgba(168, 85, 247, 0.2),
+    0 0 28px -2px rgba(56, 189, 248, 0.35);
+  animation: voice-reactive-pulse 1.15s ease-in-out infinite;
+}
+
+.composer-reactive-dock {
+  transition: border-color 0.22s ease, box-shadow 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.composer-reactive-dock.is-typing {
+  border-color: rgba(139, 92, 246, 0.56);
+  box-shadow:
+    inset 0 1.5px 1px var(--lg-specular),
+    inset 0 0 18px rgba(139, 92, 246, 0.1),
+    0 18px 46px -12px rgba(109, 40, 217, 0.28);
+}
+
+.composer-reactive-dock.is-processing {
+  border-color: rgba(99, 102, 241, 0.62);
+  box-shadow:
+    inset 0 1.5px 1px var(--lg-specular),
+    inset 0 0 22px rgba(99, 102, 241, 0.14),
+    0 18px 50px -10px rgba(79, 70, 229, 0.34);
+}
+
+.composer-reactive-dock.is-listening {
+  border-color: rgba(56, 189, 248, 0.78);
+  box-shadow:
+    inset 0 1.5px 1.5px rgba(255, 255, 255, 0.7),
+    inset 0 0 24px rgba(56, 189, 248, 0.2),
+    0 0 0 3px rgba(56, 189, 248, 0.16),
+    0 20px 52px -10px rgba(14, 165, 233, 0.38);
+}
+
+@keyframes reactive-border-breathe {
+  0%, 100% {
+    opacity: 0.62;
+  }
+  50% {
+    opacity: 0.96;
+  }
+}
+
+@keyframes voice-reactive-pulse {
+  0%, 100% {
+    opacity: 0.72;
+  }
+  45% {
+    opacity: 1;
+  }
+}
+
+/* ============================================================
+   LIQUID RIPPLE VISUAL FEEDBACK
+   ============================================================ */
+.liquid-ripple-wave {
+  position: absolute;
+  border-radius: 9999px;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.58) 0%,
+    rgba(167, 139, 250, 0.3) 45%,
+    rgba(56, 189, 248, 0.08) 75%,
+    transparent 100%
+  );
+  animation: liquid-ripple-expand 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+  z-index: 30;
+}
+
+.liquid-ripple-viewport-ring {
+  position: fixed;
+  width: 56px;
+  height: 56px;
+  border-radius: 9999px;
+  pointer-events: none;
+  border: 1.5px solid rgba(167, 139, 250, 0.55);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.38) 0%, rgba(139, 92, 246, 0.12) 55%, transparent 80%);
+  transform: translate(-50%, -50%) scale(0.25);
+  animation: liquid-ripple-expand 440ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+  z-index: 9999;
+}
+
+@keyframes liquid-ripple-expand {
+  0% {
+    transform: translate(-50%, -50%) scale(0.15);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.9);
+    opacity: 0;
+  }
+}
+
+/* ============================================================
+   AI PROCESSING CORE & FLUID WAVEFORM MICRO-ANIMATIONS
+   ============================================================ */
+@keyframes ai-core-pulse {
+  0%, 100% {
+    transform: scale(0.92);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scale(1.16);
+    opacity: 1;
+  }
+}
+
+@keyframes ai-core-halo {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.65;
+  }
+  100% {
+    transform: scale(1.75);
+    opacity: 0;
+  }
+}
+
+@keyframes ai-fluid-wave {
+  0%, 100% {
+    transform: scaleY(0.32);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.ai-core-orb {
+  animation: ai-core-pulse 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.ai-core-halo {
+  animation: ai-core-halo 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.ai-wave-bar {
+  transform-origin: center;
+  animation: ai-fluid-wave 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
 }
 
 .scrollbar-none {

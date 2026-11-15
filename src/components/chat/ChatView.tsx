@@ -33,7 +33,7 @@ import { ModelDetailsModal } from './ModelDetailsModal';
 import { LiveConversationModal } from './LiveConversationModal';
 import { triggerHaptic } from '../../utils/haptics';
 import { apiUrl } from '../../utils/platform';
-import { LiquidSpecularItem } from '../common/LiquidGlassPrimitives';
+import { LiquidSpecularItem, AiProcessingCore } from '../common/LiquidGlassPrimitives';
 
 interface ChatViewProps {
   selectedModel: ModelInfo;
@@ -775,14 +775,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex h-full w-full min-w-0 overflow-hidden bg-transparent text-slate-900 dark:text-slate-50 relative select-none">
+    <div
+      className={`chat-reactive-shell flex-1 flex h-full w-full min-w-0 overflow-hidden bg-transparent text-slate-900 dark:text-slate-50 relative select-none ${
+        isListening
+          ? 'is-listening'
+          : isLoading
+          ? 'is-processing'
+          : input.trim().length > 0
+          ? 'is-typing'
+          : ''
+      }`}
+    >
+      {/* Voice & Typing Reactive Glowing Border Overlay */}
+      <span aria-hidden="true" className="chat-reactive-border-glow" />
+
       {/* Temporary Chat Toast Notification */}
       <AnimatePresence>
         {tempChatToast && (
           <motion.div
-            initial={{ opacity: 0, y: -12, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            initial={{ opacity: 0, y: -12, scale: 0.95, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -10, scale: 0.95, filter: 'blur(6px)' }}
             transition={{ type: 'spring', stiffness: 420, damping: 28 }}
             className="absolute top-3 left-1/2 -translate-x-1/2 z-40 liquid-glass-elevated text-slate-800 dark:text-slate-100 text-xs px-4 py-2 rounded-full flex items-center gap-2 max-w-[92vw]"
           >
@@ -1040,7 +1053,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           textareaRef.current.focus();
                         }
                       }}
-                      className="p-2.5 sm:p-3.5 rounded-[18px] sm:rounded-[24px] liquid-glass-card group text-left cursor-pointer"
+                      className="p-2.5 sm:p-3.5 rounded-[18px] sm:rounded-[24px] liquid-glass-card liquid-glass-float group text-left cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5 mb-0.5 sm:mb-1">
                         <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-xl liquid-glass-orb flex items-center justify-center text-xs sm:text-sm shrink-0">
@@ -1074,14 +1087,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
         {/* Liquid Glass Composer Area */}
         <div className="w-full max-w-[770px] mx-auto px-3 sm:px-4 pb-3 sm:pb-4 pt-1 relative">
-          {/* Prompt Suggestions Bar */}
+          {/* Prompt Suggestions Bar with Smooth Backdrop-Blur Transition */}
           <AnimatePresence>
             {showSuggestions && (
               <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 6 }}
-                transition={{ duration: 0.16 }}
+                initial={{ opacity: 0, y: 8, filter: 'blur(8px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: 6, filter: 'blur(6px)' }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                 className="flex items-center gap-2 overflow-x-auto pb-2 mb-1 scrollbar-none text-xs"
               >
                 {[
@@ -1236,13 +1249,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
           </div>
 
-          {/* Attachment Popover Menu (Morphing Liquid Glass Card with Specular Illumination) */}
+          {/* Attachment Popover Menu (Morphing Liquid Glass Card with Smooth Blur Transition) */}
           <AnimatePresence>
             {showAttachMenu && (
               <motion.div
-                initial={{ opacity: 0, y: 12, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.92 }}
+                initial={{ opacity: 0, y: 12, scale: 0.92, filter: 'blur(10px)' }}
+                animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: 8, scale: 0.94, filter: 'blur(8px)' }}
                 transition={{ type: 'spring', stiffness: 660, damping: 34, mass: 0.45 }}
                 style={{ transformOrigin: 'bottom left' }}
                 className="absolute bottom-24 left-3 sm:left-4 z-40 liquid-glass-elevated text-slate-900 dark:text-white rounded-[26px] p-2.5 w-72 max-w-[calc(100vw-1.5rem)]"
@@ -1298,12 +1311,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
             )}
           </AnimatePresence>
 
-          {/* iOS 27 Rounded Liquid Glass Composer Dock */}
-          <div className="liquid-glass-elevated rounded-[28px] p-2.5 sm:p-3.5 relative">
+          {/* iOS 27 Rounded Liquid Glass Composer Dock with Voice/Typing Reactive Glowing Border */}
+          <div
+            className={`liquid-glass-elevated composer-reactive-dock rounded-[28px] p-2.5 sm:p-3.5 relative ${
+              isListening
+                ? 'is-listening'
+                : isLoading
+                ? 'is-processing'
+                : input.trim().length > 0
+                ? 'is-typing'
+                : ''
+            }`}
+          >
             <span
               aria-hidden="true"
               className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/80 dark:via-white/35 to-transparent"
             />
+            {(isListening || isLoading) && (
+              <div className="flex items-center justify-between px-1 pb-1.5">
+                <AiProcessingCore
+                  compact
+                  label={isListening ? 'Listening to voice' : 'Processing query'}
+                />
+              </div>
+            )}
             {/* Attachment Previews */}
             <AnimatePresence>
               {attachments.length > 0 && (
