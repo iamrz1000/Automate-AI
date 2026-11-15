@@ -355,6 +355,30 @@ export async function updateFirestoreUserProfile(
   }
 }
 
+export async function incrementFirestoreUsageCounters(
+  uid: string,
+  nextMessagesToday: number,
+  nextImagesToday: number
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !currentUser.emailVerified) {
+    return;
+  }
+
+  const userPath = `users/${uid}`;
+  const userRef = doc(db, 'users', uid);
+
+  try {
+    await updateDoc(userRef, {
+      messagesToday: Math.min(1000000, Math.max(0, Math.floor(nextMessagesToday))),
+      imagesToday: Math.min(1000000, Math.max(0, Math.floor(nextImagesToday))),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.warn(`Could not sync daily usage counter at ${userPath}:`, error);
+  }
+}
+
 export async function deleteFirestoreUserProfile(uid: string): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser || !currentUser.emailVerified) {

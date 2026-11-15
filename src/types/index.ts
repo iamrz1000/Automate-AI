@@ -1,4 +1,4 @@
-export type NavTab = 'chat' | 'agents' | 'tasks' | 'build' | 'library' | 'integrations' | 'models' | 'settings' | 'upgrade' | 'admin' | 'downloads';
+export type NavTab = 'chat' | 'agents' | 'tasks' | 'build' | 'library' | 'integrations' | 'models' | 'settings' | 'upgrade' | 'admin';
 
 export interface ModelInfo {
   id: string;

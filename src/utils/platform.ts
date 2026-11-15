@@ -37,11 +37,18 @@ export const DEFAULT_REMOTE_API_ORIGIN =
 export const DEFAULT_GITHUB_REPO =
   import.meta.env.VITE_GITHUB_REPO || 'iamrz1000/Automate-AI';
 
+export function isNativeAndroidWebView(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return window.location.hostname === 'appassets.androidplatform.net';
+}
+
 export function getRuntimeHost(): RuntimeHost {
   if (typeof window !== 'undefined' && window.automateDesktop?.isElectron) {
     return 'electron';
   }
-  if (Capacitor.isNativePlatform()) {
+  if (Capacitor.isNativePlatform() || isNativeAndroidWebView()) {
     return 'capacitor';
   }
   return 'web';
@@ -51,14 +58,14 @@ export function getRuntimeHost(): RuntimeHost {
  * Resolves relative `/api/...` paths so they work seamlessly across:
  * - Browser SPA (same-origin `/api/...`)
  * - Electron desktop app (same-origin `http://127.0.0.1:<port>/api/...` proxied in main process)
- * - Capacitor iOS/Android native apps (routed to live cloud backend origin)
+ * - Capacitor iOS/Android & Android APK WebView native apps (routed to live cloud backend origin)
  */
 export function apiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) {
     return path;
   }
   const normalized = path.startsWith('/') ? path : `/${path}`;
-  if (Capacitor.isNativePlatform()) {
+  if (Capacitor.isNativePlatform() || isNativeAndroidWebView()) {
     const base = DEFAULT_REMOTE_API_ORIGIN.replace(/\/+$/, '');
     return `${base}${normalized}`;
   }

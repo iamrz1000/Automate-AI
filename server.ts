@@ -846,12 +846,15 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
 
     const primaryLabel =
       requestedId === 'gemini-4-hydrogen' || requestedId === 'gemini-4-hydrogen-xhigh'
-        ? 'Gemini 4 Hydrogen XHigh'
-        : 'Automate-X1 · Gemini 4 Hydrogen XHigh';
+        ? reasoningActive
+          ? 'Gemini 4 Hydrogen XHigh'
+          : 'Gemini 4 Hydrogen'
+        : reasoningActive
+          ? 'Automate-X1 · Gemini 4 Hydrogen XHigh'
+          : 'Automate-X1 · Gemini 4 Hydrogen';
 
-    // Use XHIGH across Automate AI & Gemini 4 Hydrogen (use LOW only when user toggles Concise fast-summary mode)
-    const primaryThinkingLevel =
-      conciseMode && !reasoningActive ? ThinkingLevel.LOW : ThinkingLevel.XHIGH;
+    // Use LOW by default for instant (<1s) first-token streaming; engage XHIGH when user enables Reasoning mode
+    const primaryThinkingLevel = reasoningActive ? ThinkingLevel.XHIGH : ThinkingLevel.LOW;
 
     const modelTargets: ModelTarget[] = isAutomateOrGemini
       ? [
@@ -859,11 +862,6 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
             apiModel: 'gemini-4-hydrogen',
             label: primaryLabel,
             thinkingLevel: primaryThinkingLevel,
-          },
-          {
-            apiModel: 'gemini-4-hydrogen',
-            label: `${primaryLabel} (High)`,
-            thinkingLevel: ThinkingLevel.HIGH,
           },
           {
             apiModel: 'gemini-4-hydrogen',

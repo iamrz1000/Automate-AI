@@ -293,6 +293,8 @@ export const LiquidSpecularItem: React.FC<LiquidSpecularItemProps> = ({
 export const LiquidGlassCardRefraction: React.FC = () => {
   const [hoveredCard, setHoveredCard] = useState<HTMLElement | null>(null);
   const hoveredCardRef = useRef<HTMLElement | null>(null);
+  const hoveredRectRef = useRef<DOMRect | null>(null);
+  const rafRef = useRef<number>(0);
 
   const rawX = useMotionValue(-300);
   const rawY = useMotionValue(-300);
@@ -304,47 +306,70 @@ export const LiquidGlassCardRefraction: React.FC = () => {
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
+      const clientX = e.clientX;
+      const clientY = e.clientY;
       const target = e.target as HTMLElement | null;
-      const card = target?.closest('.liquid-glass-card') as HTMLElement | null;
 
-      if (!card) {
-        if (hoveredCardRef.current) {
-          hoveredCardRef.current = null;
-          setHoveredCard(null);
+      if (rafRef.current) return;
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = 0;
+        const card = target?.closest('.liquid-glass-card') as HTMLElement | null;
+
+        if (!card) {
+          if (hoveredCardRef.current) {
+            hoveredCardRef.current = null;
+            hoveredRectRef.current = null;
+            setHoveredCard(null);
+          }
+          return;
         }
-        return;
-      }
 
-      const rect = card.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+        if (card !== hoveredCardRef.current || !hoveredRectRef.current) {
+          const rect = card.getBoundingClientRect();
+          hoveredCardRef.current = card;
+          hoveredRectRef.current = rect;
+          const x = clientX - rect.left;
+          const y = clientY - rect.top;
+          rawX.jump(x);
+          rawY.jump(y);
+          smoothX.jump(x);
+          smoothY.jump(y);
+          setHoveredCard(card);
+        } else {
+          const rect = hoveredRectRef.current;
+          rawX.set(clientX - rect.left);
+          rawY.set(clientY - rect.top);
+        }
+      });
+    };
 
-      if (card !== hoveredCardRef.current) {
-        hoveredCardRef.current = card;
-        rawX.jump(x);
-        rawY.jump(y);
-        smoothX.jump(x);
-        smoothY.jump(y);
-        setHoveredCard(card);
-      } else {
-        rawX.set(x);
-        rawY.set(y);
-      }
+    const invalidateRect = () => {
+      hoveredRectRef.current = null;
     };
 
     const clearHover = () => {
+      if (rafRef.current) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
       if (hoveredCardRef.current) {
         hoveredCardRef.current = null;
+        hoveredRectRef.current = null;
         setHoveredCard(null);
       }
     };
 
     document.addEventListener('pointermove', handlePointerMove, { passive: true });
+    document.addEventListener('scroll', invalidateRect, { passive: true, capture: true });
     document.addEventListener('pointerleave', clearHover);
     window.addEventListener('blur', clearHover);
 
     return () => {
+      if (rafRef.current) {
+        window.cancelAnimationFrame(rafRef.current);
+      }
       document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('scroll', invalidateRect, true);
       document.removeEventListener('pointerleave', clearHover);
       window.removeEventListener('blur', clearHover);
     };

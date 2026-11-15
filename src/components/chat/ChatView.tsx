@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Plus,
@@ -42,6 +42,7 @@ interface ChatViewProps {
   onNavigateToAgents: () => void;
   onOpenUpgrade: () => void;
   userName?: string;
+  onMessageSent?: (isImageRequest: boolean) => void;
   theme: 'light' | 'dark' | 'system';
   onToggleTheme: () => void;
   sidebarOpen?: boolean;
@@ -57,6 +58,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onNavigateToAgents,
   onOpenUpgrade,
   userName = 'Member',
+  onMessageSent,
   theme,
   onToggleTheme,
   sidebarOpen: externalSidebarOpen,
@@ -126,7 +128,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const prevMsgCountRef = useRef(0);
+  const scrollRafRef = useRef<number | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -134,16 +141,74 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const activeConversation =
     conversations.find((c) => c.id === activeConvId) || conversations[0];
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeConversation?.messages]);
+  const handleChatScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
 
-  // Auto-resize textarea
+  // Reset scroll anchor when switching conversations
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
+    isNearBottomRef.current = true;
+    prevMsgCountRef.current = activeConversation?.messages.length || 0;
+  }, [activeConvId]);
+
+  // Smart RAF-throttled auto-scroll: smooth on new message send, instant snap during streaming without fighting user scroll
+  const messagesRef = activeConversation?.messages;
+  const msgCount = messagesRef?.length || 0;
+  const lastMsgContentLen =
+    msgCount > 0 ? messagesRef[msgCount - 1].content.length : 0;
+  const isLastMsgStreaming =
+    msgCount > 0 ? Boolean(messagesRef[msgCount - 1].isStreaming) : false;
+
+  useEffect(() => {
+    const countIncreased = msgCount > prevMsgCountRef.current;
+    prevMsgCountRef.current = msgCount;
+
+    if (!isNearBottomRef.current && !countIncreased) return;
+
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
     }
+
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      if (countIncreased && !isLastMsgStreaming) {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+  }, [msgCount, lastMsgContentLen, isLastMsgStreaming]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+      if (resizeRafRef.current !== null) cancelAnimationFrame(resizeRafRef.current);
+    };
+  }, []);
+
+  // Auto-resize textarea cleanly inside requestAnimationFrame to prevent synchronous layout thrashing per keystroke
+  useEffect(() => {
+    if (resizeRafRef.current !== null) {
+      cancelAnimationFrame(resizeRafRef.current);
+    }
+    resizeRafRef.current = requestAnimationFrame(() => {
+      resizeRafRef.current = null;
+      const el = textareaRef.current;
+      if (!el) return;
+      if (!input) {
+        el.style.height = '';
+        return;
+      }
+      el.style.height = 'auto';
+      const nextHeight = `${Math.min(el.scrollHeight, 180)}px`;
+      if (el.style.height !== nextHeight) {
+        el.style.height = nextHeight;
+      }
+    });
   }, [input]);
 
   // Apply external prompt triggered via LiquidSearchOverlay
@@ -290,9 +355,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       );
     }
 
+    isNearBottomRef.current = true;
     setIsLoading(true);
+    onMessageSent?.(isImageReq);
     abortControllerRef.current = new AbortController();
 
+    let streamUpdateRaf: number | null = null;
     try {
       const response = await fetch(apiUrl('/api/chat'), {
         method: 'POST',
@@ -322,6 +390,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
       let usedModel = selectedModel.name;
       let detectedImg: { url: string; prompt: string; revisedPrompt?: string } | undefined;
       let lineBuffer = '';
+      const targetConvId = activeConvId;
+
+      const flushStreamState = (isStreamingFlag: boolean) => {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === targetConvId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantPlaceholderId
+                      ? {
+                          ...m,
+                          content: accumulated,
+                          isStreaming: isStreamingFlag,
+                          model: usedModel,
+                          generatedImage: detectedImg || m.generatedImage,
+                        }
+                      : m
+                  ),
+                }
+              : c
+          )
+        );
+      };
+
+      const scheduleStreamFlush = () => {
+        if (streamUpdateRaf !== null) return;
+        streamUpdateRaf = requestAnimationFrame(() => {
+          streamUpdateRaf = null;
+          flushStreamState(true);
+        });
+      };
 
       if (reader) {
         while (true) {
@@ -332,6 +432,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           const lines = lineBuffer.split('\n');
           lineBuffer = lines.pop() || '';
 
+          let chunkHasUpdate = false;
           for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed.startsWith('data: ')) {
@@ -341,45 +442,42 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 const parsed = JSON.parse(dataStr);
                 if (parsed.error) {
                   accumulated += `\n\n*Error: ${parsed.error}*`;
+                  chunkHasUpdate = true;
                 }
                 if (parsed.model) {
                   usedModel = parsed.model;
+                  chunkHasUpdate = true;
                 }
                 if (parsed.generatedImage) {
                   detectedImg = parsed.generatedImage;
+                  chunkHasUpdate = true;
                 }
                 if (parsed.text) {
                   accumulated += parsed.text;
+                  chunkHasUpdate = true;
                 }
-
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.id === activeConvId
-                      ? {
-                          ...c,
-                          messages: c.messages.map((m) =>
-                            m.id === assistantPlaceholderId
-                              ? {
-                                  ...m,
-                                  content: accumulated,
-                                  isStreaming: true,
-                                  model: usedModel,
-                                  generatedImage: detectedImg || m.generatedImage,
-                                }
-                              : m
-                          ),
-                        }
-                      : c
-                  )
-                );
               } catch {
                 // Ignore parse error on partial chunks
               }
             }
           }
+
+          if (chunkHasUpdate) {
+            scheduleStreamFlush();
+          }
         }
+
+        if (streamUpdateRaf !== null) {
+          cancelAnimationFrame(streamUpdateRaf);
+          streamUpdateRaf = null;
+        }
+        flushStreamState(false);
       }
     } catch (err: any) {
+      if (streamUpdateRaf !== null) {
+        cancelAnimationFrame(streamUpdateRaf);
+        streamUpdateRaf = null;
+      }
       if (err.name !== 'AbortError') {
         const fallbackText =
           err.message ||
@@ -426,13 +524,45 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
-  const handleRegenerate = async () => {
-    if (isLoading || activeConversation.messages.length === 0) return;
-    const msgs = [...activeConversation.messages];
+  const regenerateDepsRef = useRef({
+    isLoading,
+    activeConversation,
+    activeConvId,
+    selectedModel,
+    reasoningActive,
+    conciseMode,
+    imageAspectRatio,
+    onMessageSent,
+  });
+  regenerateDepsRef.current = {
+    isLoading,
+    activeConversation,
+    activeConvId,
+    selectedModel,
+    reasoningActive,
+    conciseMode,
+    imageAspectRatio,
+    onMessageSent,
+  };
+
+  const handleRegenerate = useCallback(async () => {
+    const {
+      isLoading: loadingNow,
+      activeConversation: convNow,
+      activeConvId: targetConvId,
+      selectedModel: modelNow,
+      reasoningActive: reasoningNow,
+      conciseMode: conciseNow,
+      imageAspectRatio: aspectNow,
+      onMessageSent: notifySent,
+    } = regenerateDepsRef.current;
+
+    if (loadingNow || convNow.messages.length === 0) return;
+    const msgs = [...convNow.messages];
     const lastUserIdx = msgs.reverse().findIndex((m) => m.role === 'user');
     if (lastUserIdx === -1) return;
-    const actualIdx = activeConversation.messages.length - 1 - lastUserIdx;
-    const lastUserMsg = activeConversation.messages[actualIdx];
+    const actualIdx = convNow.messages.length - 1 - lastUserIdx;
+    const lastUserMsg = convNow.messages[actualIdx];
 
     const assistantPlaceholderId = `assistant-${Date.now()}`;
     const assistantMessage: ChatMessage = {
@@ -440,38 +570,48 @@ export const ChatView: React.FC<ChatViewProps> = ({
       role: 'assistant',
       content: '',
       timestamp: new Date().toISOString(),
-      model: selectedModel.name,
+      model: modelNow.name,
       isStreaming: true,
     };
 
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === activeConvId
+        c.id === targetConvId
           ? { ...c, messages: [...c.messages.slice(0, actualIdx + 1), assistantMessage] }
           : c
       )
     );
 
+    isNearBottomRef.current = true;
     setIsLoading(true);
+    const isImage =
+      lastUserMsg.content.trim().startsWith('/image') ||
+      /^(generate|create|draw|make|render|paint|design)\s+(an?\s+)?(image|picture|photo|illustration|art|drawing)/i.test(
+        lastUserMsg.content.trim()
+      );
+    notifySent?.(isImage);
     abortControllerRef.current = new AbortController();
 
+    let streamUpdateRaf: number | null = null;
     try {
-      const isImage = lastUserMsg.content.trim().startsWith('/image') ||
-        /^(generate|create|draw|make|render|paint|design)\s+(an?\s+)?(image|picture|photo|illustration|art|drawing)/i.test(lastUserMsg.content.trim());
-
       const response = await fetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: selectedModel.id,
-          messages: activeConversation.messages.slice(0, actualIdx + 1),
+          model: modelNow.id,
+          messages: convNow.messages.slice(0, actualIdx + 1),
           stream: true,
-          reasoningActive,
-          conciseMode,
-          ...(conciseMode ? { systemInstruction: CONCISE_SYSTEM_INSTRUCTION } : {}),
-          files: lastUserMsg.attachments?.map((a) => ({ name: a.name, mimeType: a.type, base64: a.dataUrl })) || [],
+          reasoningActive: reasoningNow,
+          conciseMode: conciseNow,
+          ...(conciseNow ? { systemInstruction: CONCISE_SYSTEM_INSTRUCTION } : {}),
+          files:
+            lastUserMsg.attachments?.map((a) => ({
+              name: a.name,
+              mimeType: a.type,
+              base64: a.dataUrl,
+            })) || [],
           isImageRequest: isImage,
-          aspectRatio: imageAspectRatio,
+          aspectRatio: aspectNow,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -480,9 +620,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let accumulated = '';
-      let usedModel = selectedModel.name;
+      let usedModel = modelNow.name;
       let detectedImg: { url: string; prompt: string; revisedPrompt?: string } | undefined;
       let lineBuffer = '';
+
+      const flushStreamState = (isStreamingFlag: boolean) => {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === targetConvId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantPlaceholderId
+                      ? {
+                          ...m,
+                          content: accumulated,
+                          isStreaming: isStreamingFlag,
+                          model: usedModel,
+                          generatedImage: detectedImg || m.generatedImage,
+                        }
+                      : m
+                  ),
+                }
+              : c
+          )
+        );
+      };
+
+      const scheduleStreamFlush = () => {
+        if (streamUpdateRaf !== null) return;
+        streamUpdateRaf = requestAnimationFrame(() => {
+          streamUpdateRaf = null;
+          flushStreamState(true);
+        });
+      };
 
       if (reader) {
         while (true) {
@@ -493,6 +664,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           const lines = lineBuffer.split('\n');
           lineBuffer = lines.pop() || '';
 
+          let chunkHasUpdate = false;
           for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed.startsWith('data: ')) {
@@ -500,47 +672,51 @@ export const ChatView: React.FC<ChatViewProps> = ({
               if (dataStr === '[DONE]') break;
               try {
                 const parsed = JSON.parse(dataStr);
-                if (parsed.model) usedModel = parsed.model;
-                if (parsed.generatedImage) detectedImg = parsed.generatedImage;
-                if (parsed.text) accumulated += parsed.text;
-
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.id === activeConvId
-                      ? {
-                          ...c,
-                          messages: c.messages.map((m) =>
-                            m.id === assistantPlaceholderId
-                              ? {
-                                  ...m,
-                                  content: accumulated,
-                                  isStreaming: true,
-                                  model: usedModel,
-                                  generatedImage: detectedImg || m.generatedImage,
-                                }
-                              : m
-                          ),
-                        }
-                      : c
-                  )
-                );
+                if (parsed.model) {
+                  usedModel = parsed.model;
+                  chunkHasUpdate = true;
+                }
+                if (parsed.generatedImage) {
+                  detectedImg = parsed.generatedImage;
+                  chunkHasUpdate = true;
+                }
+                if (parsed.text) {
+                  accumulated += parsed.text;
+                  chunkHasUpdate = true;
+                }
               } catch {}
             }
           }
+
+          if (chunkHasUpdate) {
+            scheduleStreamFlush();
+          }
         }
+
+        if (streamUpdateRaf !== null) {
+          cancelAnimationFrame(streamUpdateRaf);
+          streamUpdateRaf = null;
+        }
+        flushStreamState(false);
       }
     } catch (err: any) {
+      if (streamUpdateRaf !== null) {
+        cancelAnimationFrame(streamUpdateRaf);
+        streamUpdateRaf = null;
+      }
       if (err?.name !== 'AbortError') {
         setConversations((prev) =>
           prev.map((c) =>
-            c.id === activeConvId
+            c.id === targetConvId
               ? {
                   ...c,
                   messages: c.messages.map((m) =>
                     m.id === assistantPlaceholderId
                       ? {
                           ...m,
-                          content: m.content || '⚠️ **Automate AI Notice:** Could not regenerate response. Please try again.',
+                          content:
+                            m.content ||
+                            '⚠️ **Automate AI Notice:** Could not regenerate response. Please try again.',
                           isStreaming: false,
                         }
                       : m
@@ -553,13 +729,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
     } finally {
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === activeConvId
+          c.id === targetConvId
             ? {
                 ...c,
                 messages: c.messages.map((m) =>
-                  m.id === assistantPlaceholderId
-                    ? { ...m, isStreaming: false }
-                    : m
+                  m.id === assistantPlaceholderId ? { ...m, isStreaming: false } : m
                 ),
               }
             : c
@@ -568,15 +742,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  };
+  }, []);
 
-  const handleGenerateVariation = (prompt: string, aspectRatio: string = '1:1') => {
+  const handleGenerateVariation = useCallback((prompt: string, aspectRatio: string = '1:1') => {
     setImageAspectRatio((aspectRatio as any) || '1:1');
     setInput(`/image ${prompt}`);
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
-  };
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -601,7 +775,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex h-full w-full min-w-0 overflow-hidden bg-transparent text-slate-900 dark:text-slate-50 relative select-none transition-colors">
+    <div className="flex-1 flex h-full w-full min-w-0 overflow-hidden bg-transparent text-slate-900 dark:text-slate-50 relative select-none">
       {/* Temporary Chat Toast Notification */}
       <AnimatePresence>
         {tempChatToast && (
@@ -740,9 +914,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </AnimatePresence>
 
       {/* Main Workspace Area */}
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-transparent text-slate-900 dark:text-slate-50 transition-colors">
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-transparent text-slate-900 dark:text-slate-50">
         {/* Scrollable Conversation or Pristine Center State */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 min-w-0">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleChatScroll}
+          className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 min-w-0 chat-scroll-region"
+        >
           {activeConversation.messages.length === 0 ? (
             /* Pristine Center State: min-h-full + my-auto centers on desktop and prevents top clipping on short mobile viewports */
             <div className="min-h-full w-full flex flex-col items-center">

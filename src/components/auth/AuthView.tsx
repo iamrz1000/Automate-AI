@@ -13,7 +13,6 @@ import {
   Info,
   CheckCircle2,
   Shield,
-  Download,
 } from 'lucide-react';
 import {
   signInWithEmailAndPassword,
@@ -41,7 +40,6 @@ interface AuthViewProps {
   notice?: { type: 'info' | 'warning' | 'success'; message: string } | null;
   theme?: 'light' | 'system' | 'dark';
   onToggleTheme?: () => void;
-  onOpenDownloads?: () => void;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
@@ -49,7 +47,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
   notice,
   theme = 'dark',
   onToggleTheme,
-  onOpenDownloads,
 }) => {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [showPassword, setShowPassword] = useState(false);
@@ -270,17 +267,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {onOpenDownloads && (
-            <button
-              type="button"
-              onClick={onOpenDownloads}
-              className="px-3 py-1.5 rounded-full liquid-glass-orb text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 cursor-pointer"
-              title="Install Desktop & Mobile Apps"
-            >
-              <Download className="w-3.5 h-3.5 text-violet-600 dark:text-violet-300" />
-              <span className="hidden sm:inline">Get Apps</span>
-            </button>
-          )}
           {onToggleTheme && (
             <LiquidThemeSwitch theme={theme} onToggle={onToggleTheme} />
           )}

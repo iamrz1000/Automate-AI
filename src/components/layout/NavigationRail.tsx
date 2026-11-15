@@ -17,7 +17,6 @@ import {
   Search,
   Sparkles,
   Radio,
-  Download,
 } from 'lucide-react';
 import {
   motion,
@@ -36,7 +35,6 @@ interface NavigationRailProps {
   onOpenUpgrade: () => void;
   onOpenGift: () => void;
   onOpenSearch?: () => void;
-  onOpenDownloads?: () => void;
   theme?: 'light' | 'system' | 'dark';
   onToggleTheme?: () => void;
   currentUser?: UserProfile;
@@ -79,7 +77,6 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   onOpenUpgrade,
   onOpenGift,
   onOpenSearch,
-  onOpenDownloads,
   theme = 'dark',
   onToggleTheme,
   currentUser,
@@ -393,7 +390,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   const highlightedMobileIdx = isMobileScrubbing ? mobilePreviewIndex : mobileActiveIndex;
   const highlightedDesktopIdx = isDesktopScrubbing ? desktopPreviewIndex : desktopActiveIndex;
   const isDesktopHighlightAdmin = desktopTabs[highlightedDesktopIdx] === 'admin';
-  const showDesktopLens = (activeTab !== 'settings' && activeTab !== 'downloads') || isDesktopScrubbing;
+  const showDesktopLens = activeTab !== 'settings' || isDesktopScrubbing;
 
   return (
     <>
@@ -521,22 +518,6 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         {/* Bottom Utility Cluster */}
         <div className="pt-2.5 w-full flex flex-col items-center gap-2 border-t border-slate-900/10 dark:border-white/10">
-          {onOpenDownloads && (
-            <motion.button
-              whileHover={{ scale: 1.08 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={onOpenDownloads}
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-                activeTab === 'downloads'
-                  ? 'liquid-glass-droplet text-violet-600 dark:text-violet-300'
-                  : 'liquid-glass-orb text-slate-600 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white'
-              }`}
-              title="Install Desktop & Mobile Apps"
-            >
-              <Download className="w-4 h-4 stroke-[1.9]" />
-            </motion.button>
-          )}
-
           {onOpenSearch && (
             <motion.button
               whileHover={{ scale: 1.08 }}
@@ -625,20 +606,6 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
                     );
                   })}
                 </div>
-                {onOpenDownloads && (
-                  <motion.button
-                    type="button"
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => {
-                      setShowQuickMenu(false);
-                      onOpenDownloads();
-                    }}
-                    className="w-full py-2 px-3 rounded-full liquid-glass-cta text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Install Native App (APK / Desktop / iOS)</span>
-                  </motion.button>
-                )}
               </motion.div>
             </>
           )}

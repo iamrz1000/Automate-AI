@@ -27,8 +27,6 @@ import {
   Plus,
   AlertTriangle,
   Menu,
-  Download,
-  Smartphone,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { updatePassword } from 'firebase/auth';
@@ -37,7 +35,6 @@ import { UserProfile } from '../../types';
 import { ALL_CONNECTORS, ALL_MCP_SERVERS } from '../../data/integrationsData';
 import { UserAvatar } from '../common/UserAvatar';
 import { LiquidGlassSwitch } from '../common/LiquidGlassPrimitives';
-import { apiUrl } from '../../utils/platform';
 
 interface SettingsViewProps {
   user: UserProfile;
@@ -45,7 +42,6 @@ interface SettingsViewProps {
   onOpenUpgrade: () => void;
   onSignOut: () => void;
   onDeleteAccount: () => void;
-  onOpenDownloads?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -54,7 +50,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenUpgrade,
   onSignOut,
   onDeleteAccount,
-  onOpenDownloads,
 }) => {
   const [activeTab, setActiveTab] = useState('profile');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -73,36 +68,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [settingsToast, setSettingsToast] = useState<string | null>(null);
-  const [isDownloadingZip, setIsDownloadingZip] = useState(false);
 
   const triggerToast = (msg: string) => {
     setSettingsToast(msg);
     setTimeout(() => setSettingsToast(null), 2600);
-  };
-
-  const handleDownloadProjectZip = async () => {
-    if (isDownloadingZip) return;
-    setIsDownloadingZip(true);
-    try {
-      const response = await fetch(apiUrl('/api/export-zip'));
-      if (!response.ok) {
-        throw new Error('Archive unavailable');
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'automate-ai-chatbot.zip';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      triggerToast('Downloaded automate-ai-chatbot.zip');
-    } catch {
-      triggerToast('Could not download ZIP archive.');
-    } finally {
-      setIsDownloadingZip(false);
-    }
   };
 
   // Security Form States
@@ -744,40 +713,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       </span>
                     </div>
                   </div>
-                </div>
-
-                {/* Cross-Platform Apps & Export Project ZIP */}
-                <div className="p-5 rounded-[28px] liquid-glass-card space-y-3">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-9 h-9 rounded-2xl liquid-glass-orb flex items-center justify-center text-violet-600 dark:text-violet-400 shrink-0">
-                      <Smartphone className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900 dark:text-white text-xs">Desktop & Mobile Apps</h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Install native Android, iOS, Windows, macOS, or Linux builds, or export source ZIP.
-                      </p>
-                    </div>
-                  </div>
-                  {onOpenDownloads && (
-                    <button
-                      type="button"
-                      onClick={onOpenDownloads}
-                      className="w-full py-2.5 px-4 liquid-glass-cta rounded-full text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Open Download Center</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleDownloadProjectZip}
-                    disabled={isDownloadingZip}
-                    className="w-full py-2 px-4 liquid-glass-orb rounded-full text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>{isDownloadingZip ? 'Preparing ZIP...' : 'Download Source ZIP'}</span>
-                  </button>
                 </div>
               </div>
             </div>

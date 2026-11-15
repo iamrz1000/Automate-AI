@@ -12,6 +12,7 @@ import {
   buildUserProfileFromAuth,
   syncUserProfileToFirestore,
   updateFirestoreUserProfile,
+  incrementFirestoreUsageCounters,
   deleteFirestoreUserProfile,
   readPendingSignupMetadata,
   getFirebaseAuthErrorMessage,
@@ -31,7 +32,6 @@ import { ModelsView } from './components/models/ModelsView';
 import { SettingsView } from './components/settings/SettingsView';
 import { AuthView } from './components/auth/AuthView';
 import { AdminView } from './components/admin/AdminView';
-import { DownloadsView } from './components/downloads/DownloadsView';
 import { LiquidSearchOverlay } from './components/common/LiquidSearchOverlay';
 import { LiveConversationModal } from './components/chat/LiveConversationModal';
 import { LiquidGlassCardRefraction } from './components/common/LiquidGlassPrimitives';
@@ -62,7 +62,6 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isVerificationSending, setIsVerificationSending] = useState<boolean>(false);
   const [authNotice, setAuthNotice] = useState<{ type: 'info' | 'warning' | 'success'; message: string } | null>(null);
-  const [showUnauthDownloads, setShowUnauthDownloads] = useState<boolean>(false);
   const [isOnline, setIsOnline] = useState<boolean>(true);
 
   // Application Data States
@@ -100,9 +99,14 @@ export default function App() {
     };
   });
 
-  // Subscribe to Firebase Authentication state
+  // Subscribe to Firebase Authentication state with safety fallback so splash never hangs
   useEffect(() => {
+    const authFallbackTimer = window.setTimeout(() => {
+      setAuthReady(true);
+    }, 3500);
+
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      window.clearTimeout(authFallbackTimer);
       setFirebaseUser(fbUser);
 
       if (!fbUser) {
@@ -149,7 +153,10 @@ export default function App() {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      window.clearTimeout(authFallbackTimer);
+      unsubscribe();
+    };
   }, []);
 
   // Initialize native mobile lifecycle (StatusBar & hardware Back button) + Network listener
@@ -162,23 +169,31 @@ export default function App() {
   // Fetch initial workspace resources
   useEffect(() => {
     fetch(apiUrl('/api/agents'))
-      .then((res) => res.json())
-      .then((data) => setAgents(data))
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setAgents(data);
+      })
       .catch((err) => console.error('Failed to load agents:', err));
 
     fetch(apiUrl('/api/tasks'))
-      .then((res) => res.json())
-      .then((data) => setTasks(data))
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setTasks(data);
+      })
       .catch((err) => console.error('Failed to load tasks:', err));
 
     fetch(apiUrl('/api/library'))
-      .then((res) => res.json())
-      .then((data) => setLibraryAssets(data))
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setLibraryAssets(data);
+      })
       .catch((err) => console.error('Failed to load library:', err));
 
     fetch(apiUrl('/api/integrations'))
-      .then((res) => res.json())
-      .then((data) => setIntegrations(data))
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setIntegrations(data);
+      })
       .catch((err) => console.error('Failed to load integrations:', err));
   }, []);
 
@@ -365,6 +380,21 @@ export default function App() {
     }
   };
 
+  const handleIncrementUsage = (isImageRequest: boolean) => {
+    setUserProfile((prev) => {
+      const nextMessages = (prev.messagesToday || 0) + 1;
+      const nextImages = (prev.imagesToday || 0) + (isImageRequest ? 1 : 0);
+      if (firebaseUser && firebaseUser.emailVerified) {
+        incrementFirestoreUsageCounters(firebaseUser.uid, nextMessages, nextImages);
+      }
+      return {
+        ...prev,
+        messagesToday: nextMessages,
+        imagesToday: nextImages,
+      };
+    });
+  };
+
   function updatesWithoutPrivileges(
     updated: Partial<UserProfile>,
     allowPrivileged: boolean
@@ -515,7 +545,7 @@ export default function App() {
 
   if (!authReady) {
     return (
-      <div className="liquid-ambient-canvas flex h-[100dvh] w-full items-center justify-center text-slate-900 dark:text-slate-50">
+      <div className="liquid-ambient-canvas flex app-viewport-height w-full items-center justify-center text-slate-900 dark:text-slate-50">
         <div className="rounded-[28px] liquid-glass-elevated p-6 flex flex-col items-center gap-3">
           <div className="w-12 h-12 rounded-2xl liquid-glass-orb flex items-center justify-center p-2">
             <img
@@ -532,28 +562,20 @@ export default function App() {
     );
   }
 
-  // If user is not authenticated, render either public DownloadsView or full AuthView
+  // If user is not authenticated, render full AuthView
   if (!isAuthenticated) {
-    if (showUnauthDownloads) {
-      return (
-        <div className="liquid-ambient-canvas flex h-[100dvh] w-full overflow-hidden text-slate-900 dark:text-slate-50 safe-area-screen">
-          <DownloadsView onBack={() => setShowUnauthDownloads(false)} />
-        </div>
-      );
-    }
     return (
       <AuthView
         onLogin={handleLogin}
         notice={authNotice}
         theme={userProfile.theme}
         onToggleTheme={handleToggleTheme}
-        onOpenDownloads={() => setShowUnauthDownloads(true)}
       />
     );
   }
 
   return (
-    <div className="liquid-ambient-canvas flex h-[100dvh] w-full max-w-full overflow-hidden text-slate-900 dark:text-slate-50 select-none md:p-2.5 md:gap-2.5 relative">
+    <div className="liquid-ambient-canvas flex app-viewport-height w-full max-w-full overflow-hidden text-slate-900 dark:text-slate-50 select-none md:p-2.5 md:gap-2.5 relative">
       {/* Animated Cursor-Tracking Radial Liquid Light Refraction across all .liquid-glass-card elements */}
       <LiquidGlassCardRefraction />
 
@@ -578,7 +600,6 @@ export default function App() {
         onOpenUpgrade={() => setIsUpgradeOpen(true)}
         onOpenGift={() => setIsGiftOpen(true)}
         onOpenSearch={() => setIsSearchOpen(true)}
-        onOpenDownloads={() => setActiveTab('downloads')}
         theme={userProfile.theme || 'dark'}
         onToggleTheme={handleToggleTheme}
         currentUser={userProfile}
@@ -586,7 +607,7 @@ export default function App() {
 
       {/* 2. Main Content Boundary */}
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 md:rounded-[28px] md:liquid-glass md:overflow-hidden relative safe-area-top">
-        {/* Top Bar with Sidebar toggle, Automate AI logo, morphing search, theme switch, and upgrade */}
+        {/* Top Bar with Sidebar toggle, Automate AI logo, morphing search, offline-mode indicator, theme switch, and upgrade */}
         <TopBar
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           sidebarOpen={sidebarOpen}
@@ -600,15 +621,23 @@ export default function App() {
           onToggleTheme={handleToggleTheme}
           currentUser={userProfile}
           onNavigateToAdmin={() => setActiveTab('admin')}
+          isOffline={!isOnline}
+          onRecheckConnection={async () => {
+            if (typeof navigator !== 'undefined' && !navigator.onLine) {
+              setIsOnline(false);
+              return false;
+            }
+            try {
+              const resp = await fetch(apiUrl('/api/user'), { cache: 'no-store' });
+              const ok = resp.ok;
+              setIsOnline(ok);
+              return ok;
+            } catch {
+              setIsOnline(false);
+              return false;
+            }
+          }}
         />
-
-        {!isOnline && (
-          <div className="mx-3 mt-1 mb-0.5 px-3.5 py-2 rounded-2xl liquid-glass-subtle border border-red-400/40 flex items-center justify-between gap-2 text-xs text-red-700 dark:text-red-200 shrink-0">
-            <span>
-              You appear to be offline. Live model streaming and cloud sync will resume automatically once connected.
-            </span>
-          </div>
-        )}
 
         {firebaseUser && !firebaseUser.emailVerified && (
           <div className="mx-3 mt-1 mb-0.5 px-3.5 py-2 rounded-2xl liquid-glass-subtle border border-amber-400/35 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200 shrink-0">
@@ -637,13 +666,13 @@ export default function App() {
 
         {/* 3. Screen View Routing with instant non-blocking transitions */}
         <div className="flex-1 flex overflow-hidden pb-[74px] md:pb-0 min-w-0 relative">
-          <AnimatePresence mode="popLayout" initial={false}>
+          <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, y: 4 }}
+              initial={{ opacity: 0, y: 3 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -3 }}
-              transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.09, ease: [0.22, 1, 0.36, 1] }}
               className="flex-1 flex overflow-hidden w-full h-full min-w-0"
             >
               {activeTab === 'chat' && (
@@ -654,6 +683,7 @@ export default function App() {
                   onNavigateToAgents={() => setActiveTab('agents')}
                   onOpenUpgrade={() => setIsUpgradeOpen(true)}
                   userName={userProfile.name}
+                  onMessageSent={handleIncrementUsage}
                   theme={userProfile.theme}
                   onToggleTheme={handleToggleTheme}
                   sidebarOpen={sidebarOpen}
@@ -722,12 +752,7 @@ export default function App() {
                   onOpenUpgrade={() => setIsUpgradeOpen(true)}
                   onSignOut={handleSignOut}
                   onDeleteAccount={handleDeleteAccount}
-                  onOpenDownloads={() => setActiveTab('downloads')}
                 />
-              )}
-
-              {activeTab === 'downloads' && (
-                <DownloadsView onBack={() => setActiveTab('chat')} />
               )}
             </motion.div>
           </AnimatePresence>
