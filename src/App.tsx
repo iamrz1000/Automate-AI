@@ -547,11 +547,11 @@ export default function App() {
     return (
       <div className="liquid-ambient-canvas flex app-viewport-height w-full items-center justify-center text-slate-900 dark:text-slate-50">
         <div className="rounded-[28px] liquid-glass-elevated p-6 flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl liquid-glass-orb flex items-center justify-center p-2">
+          <div className="w-12 h-12 rounded-2xl liquid-glass-orb flex items-center justify-center overflow-hidden">
             <img
-              src="/assets/aistudio/automate_ai_logo_transparent.png"
+              src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
               alt="Automate AI"
-              className="w-8 h-8 object-contain animate-pulse"
+              className="w-full h-full object-cover scale-[1.55] animate-pulse"
             />
           </div>
           <span className="text-xs font-medium text-slate-600 dark:text-slate-300">

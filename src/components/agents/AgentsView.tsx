@@ -48,11 +48,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     switch (type) {
       case 'automate':
         return (
-          <div className="w-11 h-11 rounded-[16px] liquid-glass-orb flex items-center justify-center p-1.5">
+          <div className="w-11 h-11 rounded-[16px] liquid-glass-orb flex items-center justify-center overflow-hidden">
             <img
-              src="/assets/aistudio/automate_ai_logo_transparent.png"
+              src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
               alt="Automate"
-              className="w-full h-full object-contain"
+              className="w-full h-full object-cover scale-[1.55]"
             />
           </div>
         );

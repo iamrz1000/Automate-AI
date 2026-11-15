@@ -36,11 +36,11 @@ export const ModelPickerModal: React.FC<ModelPickerModalProps> = ({
     switch (type) {
       case 'automate':
         return (
-          <div className="w-6 h-6 rounded-md flex items-center justify-center p-0.5">
+          <div className="w-6 h-6 rounded-md flex items-center justify-center overflow-hidden">
             <img
-              src="/assets/aistudio/automate_ai_logo_transparent.png"
+              src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
               alt="Automate"
-              className="w-5 h-5 object-contain"
+              className="w-full h-full object-cover scale-[1.55]"
             />
           </div>
         );

@@ -85,12 +85,14 @@ export const TopBar: React.FC<TopBarProps> = ({
             </motion.button>
           )}
 
-          <div className="flex items-center gap-1 sm:gap-2 min-w-0">
-            <img
-              src="/assets/aistudio/automate_ai_logo_transparent.png"
-              alt="Automate AI"
-              className="h-5 sm:h-6 w-auto object-contain drop-shadow-xs shrink-0"
-            />
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden shadow-xs shrink-0">
+              <img
+                src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
+                alt="Automate AI"
+                className="w-full h-full object-cover scale-[1.55]"
+              />
+            </div>
             <span className="font-bold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white whitespace-nowrap truncate">
               Automate <span className="text-violet-600 dark:text-violet-300">AI</span>
             </span>

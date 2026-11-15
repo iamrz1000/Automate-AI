@@ -253,11 +253,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
       {/* Top Floating Liquid Glass Bar */}
       <header className="mx-3 mt-3 sm:mx-6 sm:mt-4 rounded-full liquid-glass h-14 px-4 sm:px-6 flex items-center justify-between sticky top-3 z-20">
         <div className="flex items-center gap-2.5 min-w-0">
-          <img
-            src="/assets/aistudio/automate_ai_logo_transparent.png"
-            alt="Automate AI"
-            className="h-7 w-auto object-contain drop-shadow-sm shrink-0"
-          />
+          <div className="w-7 h-7 rounded-lg overflow-hidden shadow-sm shrink-0">
+            <img
+              src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
+              alt="Automate AI"
+              className="w-full h-full object-cover scale-[1.55]"
+            />
+          </div>
           <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white truncate">
             Automate <span className="text-violet-600 dark:text-violet-300">AI</span>
           </span>
@@ -308,11 +310,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
             className="rounded-[32px] liquid-glass-elevated p-5 sm:p-8"
           >
             <div className="text-center space-y-2 mb-6 flex flex-col items-center">
-              <div className="w-16 h-16 rounded-[22px] liquid-glass-orb flex items-center justify-center p-2 mb-1">
+              <div className="w-16 h-16 rounded-[22px] liquid-glass-orb flex items-center justify-center overflow-hidden mb-1">
                 <img
-                  src="/assets/aistudio/automate_ai_logo_transparent.png"
+                  src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
                   alt="Automate AI"
-                  className="w-12 h-12 object-contain drop-shadow-md"
+                  className="w-full h-full object-cover scale-[1.55] drop-shadow-md"
                 />
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">

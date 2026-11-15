@@ -946,11 +946,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 {/* Model Logo Emblem inside Liquid Glass Squircle */}
                 <div className="flex items-center justify-center mb-2.5 sm:mb-3.5">
                   {selectedModel.id === 'automate-x1' ? (
-                    <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-[20px] sm:rounded-[26px] liquid-glass-orb flex items-center justify-center p-2 sm:p-2.5">
+                    <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-[20px] sm:rounded-[26px] liquid-glass-orb flex items-center justify-center overflow-hidden">
                       <img
-                        src="/assets/aistudio/automate_ai_logo_transparent.png"
+                        src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
                         alt="Automate AI"
-                        className="w-10 h-10 sm:w-14 sm:h-14 object-contain drop-shadow-md hover:scale-105 transition-transform"
+                        className="w-full h-full object-cover scale-[1.55] drop-shadow-md hover:scale-[1.62] transition-transform"
                       />
                     </div>
                   ) : selectedModel.id === 'opus-5' ? (

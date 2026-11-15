@@ -402,12 +402,12 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
           whileTap={{ scale: 0.92 }}
           onClick={() => onSelectTab('chat')}
           title="Automate AI Home"
-          className="w-11 h-11 rounded-2xl liquid-glass-orb flex items-center justify-center p-1.5 transition-colors duration-150 mb-2.5 relative shrink-0 group cursor-pointer"
+          className="w-11 h-11 rounded-2xl liquid-glass-orb flex items-center justify-center overflow-hidden transition-colors duration-150 mb-2.5 relative shrink-0 group cursor-pointer"
         >
           <img
-            src="/assets/aistudio/automate_ai_logo_transparent.png"
+            src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
             alt="Automate AI"
-            className="w-7 h-7 object-contain drop-shadow-xs"
+            className="w-full h-full object-cover scale-[1.55] drop-shadow-xs"
           />
         </motion.button>
 

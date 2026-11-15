@@ -347,11 +347,11 @@ const MessageRow: React.FC<MessageRowProps> = React.memo(({
     <div className={`chat-msg-row flex gap-2.5 sm:gap-3.5 min-w-0 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {/* Assistant Avatar */}
       {!isUser && (
-        <div className="w-8 h-8 rounded-2xl liquid-glass-orb p-1.5 flex items-center justify-center shrink-0 mt-1 overflow-hidden">
+        <div className="w-8 h-8 rounded-2xl liquid-glass-orb flex items-center justify-center shrink-0 mt-1 overflow-hidden">
           <img
-            src="/assets/aistudio/automate_ai_logo_transparent.png"
+            src="/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
             alt="Automate AI"
-            className="w-full h-full object-contain drop-shadow-2xs"
+            className="w-full h-full object-cover scale-[1.55] drop-shadow-2xs"
             onError={(e) => {
               (e.target as HTMLElement).style.display = 'none';
             }}
