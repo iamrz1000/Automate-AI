@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   User,
   Shield,
@@ -29,7 +29,7 @@ import {
   Menu,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { updatePassword } from 'firebase/auth';
+import { updatePassword, updateProfile } from 'firebase/auth';
 import { auth, getFirebaseAuthErrorMessage } from '../../firebase';
 import { UserProfile } from '../../types';
 import { ALL_CONNECTORS, ALL_MCP_SERVERS } from '../../data/integrationsData';
@@ -59,19 +59,54 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [displayName, setDisplayName] = useState(user.name || 'Member');
-  const [email] = useState(user.email || 'user@example.com');
+  const [email, setEmail] = useState(user.email || 'user@example.com');
   const [phoneNumber, setPhoneNumber] = useState(user.phone || '');
   const [dob] = useState(user.dob || '');
   const [role, setRole] = useState(user.jobTitle || (user.role === 'admin' ? 'Administrator' : 'Member'));
   const [organization, setOrganization] = useState(user.organization || '');
   const [colorMode, setColorMode] = useState<'light' | 'system' | 'dark'>(user.theme || 'dark');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [settingsToast, setSettingsToast] = useState<string | null>(null);
 
+  useEffect(() => {
+    setDisplayName(user.name || 'Member');
+    setEmail(user.email || 'user@example.com');
+    setPhoneNumber(user.phone || '');
+    setRole(user.jobTitle || (user.role === 'admin' ? 'Administrator' : 'Member'));
+    setOrganization(user.organization || '');
+    setColorMode(user.theme || 'dark');
+  }, [user.name, user.email, user.phone, user.jobTitle, user.role, user.organization, user.theme]);
+
   const triggerToast = (msg: string) => {
     setSettingsToast(msg);
     setTimeout(() => setSettingsToast(null), 2600);
+  };
+
+  const handleSaveProfile = async () => {
+    const trimmedName = displayName.trim();
+    if (!trimmedName) {
+      triggerToast('Display name cannot be empty.');
+      return;
+    }
+    setIsSavingProfile(true);
+    try {
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, {
+          displayName: trimmedName.slice(0, 100),
+        }).catch(() => {});
+      }
+      onUpdateUser({
+        name: trimmedName,
+        phone: phoneNumber.trim(),
+        jobTitle: role,
+        organization: organization.trim(),
+      });
+      triggerToast('Profile changes saved to cloud.');
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   // Security Form States
@@ -569,11 +604,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       </span>
                       <button
                         type="button"
-                        onClick={() => triggerToast('Profile preferences updated.')}
-                        className="text-xs text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                        onClick={handleSaveProfile}
+                        disabled={isSavingProfile}
+                        className="px-4 py-1.5 rounded-full liquid-glass-cta text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
                       >
-                        <Pencil className="w-3 h-3" />
-                        <span>Edit</span>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{isSavingProfile ? 'Saving...' : 'Save Profile'}</span>
                       </button>
                     </div>
                     <div className="flex flex-wrap gap-2">

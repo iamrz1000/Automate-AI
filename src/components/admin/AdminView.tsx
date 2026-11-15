@@ -26,6 +26,14 @@ import {
 import { UserProfile, AuthAuditLog, AdminUserData } from '../../types';
 import { UserAvatar } from '../common/UserAvatar';
 import { apiUrl } from '../../utils/platform';
+import {
+  auth,
+  BOOTSTRAPPED_ADMIN_EMAILS,
+  fetchFirestoreUsers,
+  updateFirestoreUserProfile,
+  setFirestoreAdminGrant,
+  deleteFirestoreUserProfile,
+} from '../../firebase';
 
 interface AdminViewProps {
   currentUser: UserProfile;
@@ -99,27 +107,47 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setTimeout(() => setCopiedEmail(null), 2000);
   };
 
-  // Fetch Admin Data
+  // Fetch Admin Data (Firestore + API Server)
   const fetchAdminData = async () => {
     setIsLoading(true);
     try {
-      const [usersRes, logsRes, statsRes] = await Promise.all([
-        fetch(apiUrl('/api/admin/users')),
-        fetch(apiUrl('/api/admin/audit-logs')),
-        fetch(apiUrl('/api/admin/stats')),
+      const [firestoreUsers, usersRes, logsRes, statsRes] = await Promise.all([
+        auth.currentUser?.emailVerified
+          ? fetchFirestoreUsers().catch((err) => {
+              console.warn('Firestore users fetch warning:', err);
+              return [] as AdminUserData[];
+            })
+          : Promise.resolve([] as AdminUserData[]),
+        fetch(apiUrl('/api/admin/users')).catch(() => null),
+        fetch(apiUrl('/api/admin/audit-logs')).catch(() => null),
+        fetch(apiUrl('/api/admin/stats')).catch(() => null),
       ]);
 
-      if (usersRes.ok) {
-        const usersData = await usersRes.json();
-        setUsers(usersData);
+      const apiUsers: AdminUserData[] = usersRes && usersRes.ok ? await usersRes.json() : [];
+      const mergedMap = new Map<string, AdminUserData>();
+      for (const u of apiUsers) {
+        mergedMap.set((u.email || u.id).toLowerCase(), u);
       }
-      if (logsRes.ok) {
+      for (const fu of firestoreUsers) {
+        mergedMap.set((fu.email || fu.id).toLowerCase(), fu);
+      }
+      const combinedUsers = Array.from(mergedMap.values());
+      setUsers(combinedUsers);
+
+      if (logsRes && logsRes.ok) {
         const logsData = await logsRes.json();
         setAuditLogs(logsData);
       }
-      if (statsRes.ok) {
+      if (statsRes && statsRes.ok) {
         const statsData = await statsRes.json();
-        setStats(statsData);
+        setStats({
+          ...statsData,
+          totalUsers: Math.max(statsData.totalUsers || 0, combinedUsers.length),
+          adminCount: Math.max(
+            statsData.adminCount || 0,
+            combinedUsers.filter((u) => u.role === 'admin').length
+          ),
+        });
       }
     } catch (err) {
       console.error('Failed to load admin data:', err);
@@ -140,13 +168,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const { user, targetRole } = roleChangeTarget;
 
     try {
+      const nextPlan = targetRole === 'admin' ? 'Enterprise SuperAdmin' : 'Free Member';
+      const nextLimit = targetRole === 'admin' ? 999999 : 15;
+
+      if (auth.currentUser?.emailVerified) {
+        await updateFirestoreUserProfile(
+          user.id,
+          { role: targetRole, plan: nextPlan, dailyLimit: nextLimit },
+          true
+        );
+        await setFirestoreAdminGrant(user.id, user.email, targetRole === 'admin');
+      }
+
       const res = await fetch(apiUrl(`/api/admin/users/${user.id}/role`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: targetRole }),
-      });
+      }).catch(() => null);
 
-      if (res.ok) {
+      if ((res && res.ok) || auth.currentUser?.emailVerified) {
         showToast(
           targetRole === 'admin'
             ? `Successfully promoted ${user.name} to Administrator`
@@ -158,8 +198,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
               ? {
                   ...u,
                   role: targetRole,
-                  plan: targetRole === 'admin' ? 'Enterprise SuperAdmin' : 'Free Member',
-                  dailyLimit: targetRole === 'admin' ? 999999 : 15,
+                  plan: nextPlan,
+                  dailyLimit: nextLimit,
                 }
               : u
           )
@@ -170,14 +210,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
         }
 
         fetch(apiUrl('/api/admin/audit-logs'))
-          .then((r) => r.json())
-          .then(setAuditLogs);
-      } else {
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (Array.isArray(data)) setAuditLogs(data);
+          })
+          .catch(() => {});
+      } else if (res) {
         const err = await res.json();
         showToast(err.error || 'Failed to update user role.');
       }
     } catch (err) {
       console.error('Role update failed:', err);
+      showToast('Failed to update user role in Firestore.');
     } finally {
       setRoleChangeTarget(null);
     }
@@ -186,24 +230,39 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Save Daily Limit after Confirmation
   const handleSaveLimit = async () => {
     if (!editingLimitUser) return;
+    const numericLimit = Number(customLimitValue);
     try {
+      if (auth.currentUser?.emailVerified) {
+        await updateFirestoreUserProfile(
+          editingLimitUser.id,
+          { dailyLimit: numericLimit },
+          true
+        );
+      }
       const res = await fetch(apiUrl(`/api/admin/users/${editingLimitUser.id}/limit`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dailyLimit: Number(customLimitValue) }),
-      });
-      if (res.ok) {
-        showToast(`Updated daily message quota to ${customLimitValue >= 99999 ? 'Unlimited' : customLimitValue} for ${editingLimitUser.name}`);
+        body: JSON.stringify({ dailyLimit: numericLimit }),
+      }).catch(() => null);
+
+      if ((res && res.ok) || auth.currentUser?.emailVerified) {
+        showToast(
+          `Updated daily message quota to ${numericLimit >= 99999 ? 'Unlimited' : numericLimit} for ${editingLimitUser.name}`
+        );
         setUsers((prev) =>
-          prev.map((u) => (u.id === editingLimitUser.id ? { ...u, dailyLimit: Number(customLimitValue) } : u))
+          prev.map((u) => (u.id === editingLimitUser.id ? { ...u, dailyLimit: numericLimit } : u))
         );
         setEditingLimitUser(null);
         fetch(apiUrl('/api/admin/audit-logs'))
-          .then((r) => r.json())
-          .then(setAuditLogs);
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (Array.isArray(data)) setAuditLogs(data);
+          })
+          .catch(() => {});
       }
     } catch (err) {
       console.error('Limit update failed:', err);
+      showToast('Failed to update daily quota in Firestore.');
     }
   };
 
@@ -213,17 +272,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const nextStatus = suspendTarget.status === 'suspended' ? 'active' : 'suspended';
 
     try {
+      if (auth.currentUser?.emailVerified) {
+        await updateFirestoreUserProfile(suspendTarget.id, { status: nextStatus }, true);
+      }
       const res = await fetch(apiUrl(`/api/admin/users/${suspendTarget.id}/status`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus }),
-      });
-      if (res.ok) {
+      }).catch(() => null);
+
+      if ((res && res.ok) || auth.currentUser?.emailVerified) {
         showToast(`Account for ${suspendTarget.name} has been set to ${nextStatus.toUpperCase()}`);
         setUsers((prev) => prev.map((u) => (u.id === suspendTarget.id ? { ...u, status: nextStatus } : u)));
       }
     } catch (err) {
       console.error('Status toggle failed:', err);
+      showToast('Failed to update account status in Firestore.');
     } finally {
       setSuspendTarget(null);
     }
@@ -234,16 +298,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (!deleteTarget) return;
 
     try {
-      const res = await fetch(apiUrl(`/api/admin/users/${deleteTarget.id}`), { method: 'DELETE' });
-      if (res.ok) {
+      if (auth.currentUser?.emailVerified) {
+        await deleteFirestoreUserProfile(deleteTarget.id);
+      }
+      const res = await fetch(apiUrl(`/api/admin/users/${deleteTarget.id}`), {
+        method: 'DELETE',
+      }).catch(() => null);
+
+      if ((res && res.ok) || auth.currentUser?.emailVerified) {
         showToast(`User ${deleteTarget.name} (${deleteTarget.email}) removed.`);
         setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id));
-      } else {
+      } else if (res) {
         const err = await res.json();
         showToast(err.error || 'Failed to delete user.');
       }
     } catch (err) {
       console.error('Delete failed:', err);
+      showToast('Failed to remove user from Firestore.');
     } finally {
       setDeleteTarget(null);
     }
@@ -550,7 +621,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
                     {filteredUsers.map((u) => {
-                      const isRootAdmin = u.email === 'iamrz100@gmail.com';
+                      const isRootAdmin = BOOTSTRAPPED_ADMIN_EMAILS.includes((u.email || '').toLowerCase());
                       const isTargetAdmin = u.role === 'admin';
 
                       return (
@@ -737,7 +808,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
             {/* Mobile Card View */}
             <div className="md:hidden space-y-3">
               {filteredUsers.map((u) => {
-                const isRootAdmin = u.email === 'iamrz100@gmail.com';
+                const isRootAdmin = BOOTSTRAPPED_ADMIN_EMAILS.includes((u.email || '').toLowerCase());
                 const isTargetAdmin = u.role === 'admin';
 
                 return (

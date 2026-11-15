@@ -34,8 +34,8 @@ const MIME_TYPES = {
 function getAppIconPath() {
   const candidates = [
     path.join(__dirname, '..', 'build', 'icons', 'icon.png'),
-    path.join(__dirname, '..', 'public', 'assets', 'aistudio', 'automate_ai_logo_transparent.png'),
-    path.join(__dirname, '..', 'dist', 'assets', 'aistudio', 'automate_ai_logo_transparent.png'),
+    path.join(__dirname, '..', 'public', 'assets', 'aistudio', 'Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png'),
+    path.join(__dirname, '..', 'dist', 'assets', 'aistudio', 'Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png'),
   ];
   return candidates.find((p) => fs.existsSync(p));
 }

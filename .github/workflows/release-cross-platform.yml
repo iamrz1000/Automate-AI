@@ -127,36 +127,46 @@ jobs:
           import os
           from PIL import Image, ImageDraw
 
-          logo_path = "public/assets/aistudio/automate_ai_logo_transparent.png"
-          logo = Image.open(logo_path).convert("RGBA") if os.path.isfile(logo_path) else Image.new("RGBA", (512, 512), (124, 58, 237, 255))
-          bg_color = (9, 10, 20, 255)
+          logo_path = "public/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
+          bg_color = (248, 245, 242, 255)
+          if os.path.isfile(logo_path):
+              src = Image.open(logo_path).convert("RGBA")
+              w, h = src.size
+              corner = src.getpixel((min(12, w - 1), min(12, h - 1)))
+              bg_color = (corner[0], corner[1], corner[2], 255)
+              crop_size = max(128, int(min(w, h) * 0.60))
+              left = max(0, (w - crop_size) // 2)
+              top = max(0, (h - crop_size) // 2)
+              logo = src.crop((left, top, left + crop_size, top + crop_size))
+          else:
+              logo = Image.new("RGBA", (512, 512), (168, 20, 48, 255))
+
           densities = {"mdpi": (48, 108), "hdpi": (72, 162), "xhdpi": (96, 216), "xxhdpi": (144, 324), "xxxhdpi": (192, 432)}
 
           for density, (icon_px, fg_px) in densities.items():
               out_dir = f"android/app/src/main/res/mipmap-{density}"
               os.makedirs(out_dir, exist_ok=True)
-              fg = Image.new("RGBA", (fg_px, fg_px), (0, 0, 0, 0))
-              safe = int(fg_px * 0.62)
+              fg = Image.new("RGBA", (fg_px, fg_px), bg_color)
+              safe = int(fg_px * 0.68)
               resized_fg = logo.resize((safe, safe), Image.Resampling.LANCZOS)
               fg.paste(resized_fg, ((fg_px - safe) // 2, (fg_px - safe) // 2), resized_fg)
               fg.save(os.path.join(out_dir, "ic_launcher_foreground.png"), "PNG")
 
               sq = Image.new("RGBA", (icon_px, icon_px), (0, 0, 0, 0))
               sq_bg = Image.new("RGBA", (icon_px, icon_px), bg_color)
+              legacy_sz = int(icon_px * 0.86)
+              resized_legacy = logo.resize((legacy_sz, legacy_sz), Image.Resampling.LANCZOS)
+              offset = ((icon_px - legacy_sz) // 2, (icon_px - legacy_sz) // 2)
+              sq_bg.paste(resized_legacy, offset, resized_legacy)
               mask = Image.new("L", (icon_px, icon_px), 0)
               ImageDraw.Draw(mask).rounded_rectangle([0, 0, icon_px - 1, icon_px - 1], radius=max(4, int(icon_px * 0.22)), fill=255)
               sq.paste(sq_bg, (0, 0), mask)
-              legacy_sz = int(icon_px * 0.72)
-              resized_legacy = logo.resize((legacy_sz, legacy_sz), Image.Resampling.LANCZOS)
-              offset = ((icon_px - legacy_sz) // 2, (icon_px - legacy_sz) // 2)
-              sq.paste(resized_legacy, offset, resized_legacy)
               sq.save(os.path.join(out_dir, "ic_launcher.png"), "PNG")
 
               rd = Image.new("RGBA", (icon_px, icon_px), (0, 0, 0, 0))
               rd_mask = Image.new("L", (icon_px, icon_px), 0)
               ImageDraw.Draw(rd_mask).ellipse([0, 0, icon_px - 1, icon_px - 1], fill=255)
               rd.paste(sq_bg, (0, 0), rd_mask)
-              rd.paste(resized_legacy, offset, resized_legacy)
               rd.save(os.path.join(out_dir, "ic_launcher_round.png"), "PNG")
           PYEOF
 
@@ -254,11 +264,22 @@ jobs:
 
           iconset_dir = "ios/App/App/Assets.xcassets/AppIcon.appiconset"
           os.makedirs(iconset_dir, exist_ok=True)
-          logo_path = "public/assets/aistudio/automate_ai_logo_transparent.png"
-          logo = Image.open(logo_path).convert("RGBA") if os.path.isfile(logo_path) else Image.new("RGBA", (512, 512), (124, 58, 237, 255))
+          logo_path = "public/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
+          bg_color = (248, 245, 242, 255)
+          if os.path.isfile(logo_path):
+              src = Image.open(logo_path).convert("RGBA")
+              w, h = src.size
+              corner = src.getpixel((min(12, w - 1), min(12, h - 1)))
+              bg_color = (corner[0], corner[1], corner[2], 255)
+              crop_size = max(128, int(min(w, h) * 0.60))
+              left = max(0, (w - crop_size) // 2)
+              top = max(0, (h - crop_size) // 2)
+              logo = src.crop((left, top, left + crop_size, top + crop_size))
+          else:
+              logo = Image.new("RGBA", (512, 512), (168, 20, 48, 255))
 
-          canvas = Image.new("RGBA", (1024, 1024), (9, 10, 20, 255))
-          inner = int(1024 * 0.74)
+          canvas = Image.new("RGBA", (1024, 1024), bg_color)
+          inner = int(1024 * 0.84)
           resized = logo.resize((inner, inner), Image.Resampling.LANCZOS)
           canvas.paste(resized, ((1024 - inner) // 2, (1024 - inner) // 2), resized)
           canvas.convert("RGB").save(os.path.join(iconset_dir, "AppIcon-1024.png"), "PNG")

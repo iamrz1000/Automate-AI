@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Lock,
@@ -17,7 +17,6 @@ import {
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInWithPopup,
   sendPasswordResetEmail,
   sendEmailVerification,
   updateProfile,
@@ -29,8 +28,10 @@ import {
   auth,
   googleProvider,
   githubProvider,
+  signInWithProviderSmart,
   getFirebaseAuthErrorMessage,
   savePendingSignupMetadata,
+  savePendingSignupMetadataByEmail,
 } from '../../firebase';
 import { UserProfile } from '../../types';
 import { LiquidThemeSwitch } from '../common/LiquidGlassPrimitives';
@@ -67,11 +68,25 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [signupOrg, setSignupOrg] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
 
-  const applyPersistence = async () => {
-    await setPersistence(
+  // Sync Firebase Auth persistence outside click handlers so social popup calls never lose user-activation gesture
+  useEffect(() => {
+    setPersistence(
       auth,
       rememberMe ? browserLocalPersistence : browserSessionPersistence
-    );
+    ).catch(() => {
+      // Safe no-op in restricted WebViews where storage persistence cannot be reconfigured
+    });
+  }, [rememberMe]);
+
+  const applyPersistenceSafely = async () => {
+    try {
+      await setPersistence(
+        auth,
+        rememberMe ? browserLocalPersistence : browserSessionPersistence
+      );
+    } catch {
+      // Continue with default persistence if WebView blocks storage switch
+    }
   };
 
   const handleGoogleSignIn = async () => {
@@ -79,9 +94,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setInfoMessage('');
     setIsLoading(true);
     try {
-      await applyPersistence();
-      const credential = await signInWithPopup(auth, googleProvider);
-      if (onLogin) {
+      const credential = await signInWithProviderSmart(googleProvider);
+      if (credential && onLogin) {
         onLogin({
           uid: credential.user.uid,
           id: credential.user.uid,
@@ -104,9 +118,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setInfoMessage('');
     setIsLoading(true);
     try {
-      await applyPersistence();
-      const credential = await signInWithPopup(auth, githubProvider);
-      if (onLogin) {
+      const credential = await signInWithProviderSmart(githubProvider);
+      if (credential && onLogin) {
         onLogin({
           uid: credential.user.uid,
           id: credential.user.uid,
@@ -161,7 +174,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
     setIsLoading(true);
     try {
-      await applyPersistence();
+      await applyPersistenceSafely();
       const credential = await signInWithEmailAndPassword(auth, normalizedEmail, loginPassword);
       if (onLogin) {
         onLogin({
@@ -207,22 +220,38 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
     setIsLoading(true);
     try {
-      await applyPersistence();
+      await applyPersistenceSafely();
+
+      // Store metadata by email BEFORE createUserWithEmailAndPassword fires onAuthStateChanged
+      savePendingSignupMetadataByEmail(normalizedEmail, {
+        name: trimmedName,
+        jobTitle: signupRole,
+        organization: trimmedOrg,
+      });
+
       const credential = await createUserWithEmailAndPassword(
         auth,
         normalizedEmail,
         signupPassword
       );
 
-      savePendingSignupMetadata(credential.user.uid, {
-        name: trimmedName,
-        jobTitle: signupRole,
-        organization: trimmedOrg,
-      });
+      savePendingSignupMetadata(
+        credential.user.uid,
+        {
+          name: trimmedName,
+          jobTitle: signupRole,
+          organization: trimmedOrg,
+        },
+        normalizedEmail
+      );
 
-      await updateProfile(credential.user, {
-        displayName: trimmedName.slice(0, 100),
-      });
+      try {
+        await updateProfile(credential.user, {
+          displayName: trimmedName.slice(0, 100),
+        });
+      } catch (profileErr) {
+        console.warn('Could not set displayName during signup:', profileErr);
+      }
 
       try {
         await sendEmailVerification(credential.user);

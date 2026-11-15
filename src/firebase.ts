@@ -3,20 +3,30 @@ import {
   getAuth,
   GoogleAuthProvider,
   GithubAuthProvider,
+  AuthProvider,
   User,
+  UserCredential,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
 } from 'firebase/auth';
 import {
   getFirestore,
+  collection,
   doc,
   getDoc,
+  getDocs,
   getDocFromServer,
   setDoc,
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  orderBy,
+  query,
+  limit,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
-import { UserProfile } from './types';
+import { UserProfile, AdminUserData } from './types';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -85,13 +95,16 @@ export function handleFirestoreError(
 }
 
 // Validate Firestore connection on application boot
-async function testConnection() {
+export async function testConnection(): Promise<{ online: boolean; message?: string }> {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
+    return { online: true };
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.error('Please check your Firebase configuration.');
+      return { online: false, message: 'Firestore is offline. Please verify Firebase configuration.' };
     }
+    return { online: true };
   }
 }
 testConnection();
@@ -110,28 +123,62 @@ export interface PendingSignupMetadata {
 }
 
 const PENDING_PROFILE_KEY_PREFIX = 'automate_pending_profile_';
+const PENDING_EMAIL_KEY_PREFIX = 'automate_pending_email_';
 
-export function savePendingSignupMetadata(uid: string, meta: PendingSignupMetadata) {
+export function savePendingSignupMetadata(
+  uid: string,
+  meta: PendingSignupMetadata,
+  email?: string
+) {
   try {
     localStorage.setItem(`${PENDING_PROFILE_KEY_PREFIX}${uid}`, JSON.stringify(meta));
+    if (email) {
+      localStorage.setItem(
+        `${PENDING_EMAIL_KEY_PREFIX}${email.trim().toLowerCase()}`,
+        JSON.stringify(meta)
+      );
+    }
   } catch {
     // Ignore storage errors
   }
 }
 
-export function readPendingSignupMetadata(uid: string): PendingSignupMetadata | null {
+export function savePendingSignupMetadataByEmail(email: string, meta: PendingSignupMetadata) {
+  try {
+    localStorage.setItem(
+      `${PENDING_EMAIL_KEY_PREFIX}${email.trim().toLowerCase()}`,
+      JSON.stringify(meta)
+    );
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function readPendingSignupMetadata(
+  uid: string,
+  email?: string | null
+): PendingSignupMetadata | null {
   try {
     const raw = localStorage.getItem(`${PENDING_PROFILE_KEY_PREFIX}${uid}`);
-    if (!raw) return null;
-    return JSON.parse(raw) as PendingSignupMetadata;
+    if (raw) return JSON.parse(raw) as PendingSignupMetadata;
+    if (email) {
+      const byEmail = localStorage.getItem(
+        `${PENDING_EMAIL_KEY_PREFIX}${email.trim().toLowerCase()}`
+      );
+      if (byEmail) return JSON.parse(byEmail) as PendingSignupMetadata;
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
-export function clearPendingSignupMetadata(uid: string) {
+export function clearPendingSignupMetadata(uid: string, email?: string | null) {
   try {
     localStorage.removeItem(`${PENDING_PROFILE_KEY_PREFIX}${uid}`);
+    if (email) {
+      localStorage.removeItem(`${PENDING_EMAIL_KEY_PREFIX}${email.trim().toLowerCase()}`);
+    }
   } catch {
     // Ignore storage errors
   }
@@ -140,6 +187,42 @@ export function clearPendingSignupMetadata(uid: string) {
 function sanitizeString(value: unknown, fallback: string, maxLen: number): string {
   const str = typeof value === 'string' ? value.trim() : '';
   return (str || fallback).slice(0, maxLen);
+}
+
+/**
+ * Primary signInWithPopup with automatic signInWithRedirect fallback when
+ * popups are blocked or unsupported (e.g., strict mobile browsers or WebViews).
+ * Note: Call directly from a user click handler without prior async `await`
+ * so the browser keeps the user-activation gesture intact.
+ */
+export async function signInWithProviderSmart(
+  provider: AuthProvider
+): Promise<UserCredential | null> {
+  try {
+    return await signInWithPopup(auth, provider);
+  } catch (error) {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : '';
+
+    if (
+      code === 'auth/popup-blocked' ||
+      code === 'auth/operation-not-supported-in-this-environment'
+    ) {
+      await signInWithRedirect(auth, provider);
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function resolvePendingAuthRedirect(): Promise<UserCredential | null> {
+  try {
+    return await getRedirectResult(auth);
+  } catch (error) {
+    throw error;
+  }
 }
 
 export function buildUserProfileFromAuth(
@@ -217,8 +300,24 @@ export async function syncUserProfileToFirestore(
 
   if (existingSnap && existingSnap.exists()) {
     const data = existingSnap.data();
-    const isAdmin = data.role === 'admin' || isBootstrappedAdminUser(firebaseUser);
-    clearPendingSignupMetadata(firebaseUser.uid);
+    const bootstrapped = isBootstrappedAdminUser(firebaseUser);
+    const isAdmin = data.role === 'admin' || bootstrapped;
+
+    // Ensure bootstrapped admin role stays upgraded in Firestore
+    if (bootstrapped && data.role !== 'admin') {
+      try {
+        await updateDoc(userRef, {
+          role: 'admin',
+          plan: 'Enterprise SuperAdmin',
+          dailyLimit: 999999,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        console.warn('Could not upgrade bootstrapped admin doc:', err);
+      }
+    }
+
+    clearPendingSignupMetadata(firebaseUser.uid, firebaseUser.email);
     return {
       ...baseProfile,
       name: typeof data.name === 'string' ? data.name : baseProfile.name,
@@ -229,9 +328,17 @@ export async function syncUserProfileToFirestore(
       isAdmin,
       organization: typeof data.organization === 'string' ? data.organization : baseProfile.organization,
       timezone: typeof data.timezone === 'string' ? data.timezone : baseProfile.timezone,
-      plan: typeof data.plan === 'string' ? data.plan : baseProfile.plan,
+      plan: isAdmin && data.role !== 'admin'
+        ? 'Enterprise SuperAdmin'
+        : typeof data.plan === 'string'
+        ? data.plan
+        : baseProfile.plan,
       theme: data.theme === 'light' || data.theme === 'dark' || data.theme === 'system' ? data.theme : baseProfile.theme,
-      dailyLimit: typeof data.dailyLimit === 'number' ? data.dailyLimit : baseProfile.dailyLimit,
+      dailyLimit: isAdmin && data.role !== 'admin'
+        ? 999999
+        : typeof data.dailyLimit === 'number'
+        ? data.dailyLimit
+        : baseProfile.dailyLimit,
       messagesToday: typeof data.messagesToday === 'number' ? data.messagesToday : 0,
       imagesToday: typeof data.imagesToday === 'number' ? data.imagesToday : 0,
       referralCode: typeof data.referralCode === 'string' ? data.referralCode : baseProfile.referralCode,
@@ -272,7 +379,7 @@ export async function syncUserProfileToFirestore(
 
   try {
     await setDoc(userRef, newDoc);
-    clearPendingSignupMetadata(firebaseUser.uid);
+    clearPendingSignupMetadata(firebaseUser.uid, firebaseUser.email);
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, userPath);
   }
@@ -292,6 +399,18 @@ export async function updateFirestoreUserProfile(
 
   const userPath = `users/${uid}`;
   const userRef = doc(db, 'users', uid);
+
+  // Guarantee the target document exists before running updateDoc
+  if (uid === currentUser.uid) {
+    try {
+      const snap = await getDoc(userRef);
+      if (!snap.exists()) {
+        await syncUserProfileToFirestore(currentUser);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, userPath);
+    }
+  }
 
   const payload: Record<string, unknown> = {
     updatedAt: serverTimestamp(),
@@ -392,11 +511,84 @@ export async function deleteFirestoreUserProfile(uid: string): Promise<void> {
   }
 }
 
+export async function fetchFirestoreUsers(): Promise<AdminUserData[]> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !currentUser.emailVerified) {
+    return [];
+  }
+
+  const usersPath = 'users';
+  try {
+    const q = query(collection(db, usersPath), orderBy('updatedAt', 'desc'), limit(100));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      const createdAtIso =
+        typeof data.createdAt?.toDate === 'function'
+          ? data.createdAt.toDate().toISOString()
+          : new Date().toISOString();
+      const updatedAtIso =
+        typeof data.updatedAt?.toDate === 'function'
+          ? data.updatedAt.toDate().toISOString()
+          : createdAtIso;
+
+      return {
+        id: d.id,
+        name: typeof data.name === 'string' ? data.name : 'Member',
+        email: typeof data.email === 'string' ? data.email : '',
+        role: data.role === 'admin' ? 'admin' : 'user',
+        plan: typeof data.plan === 'string' ? data.plan : 'Free Member',
+        dailyLimit: typeof data.dailyLimit === 'number' ? data.dailyLimit : 15,
+        messagesToday: typeof data.messagesToday === 'number' ? data.messagesToday : 0,
+        imagesToday: typeof data.imagesToday === 'number' ? data.imagesToday : 0,
+        status: data.status === 'suspended' ? 'suspended' : 'active',
+        joinedAt: createdAtIso,
+        lastLogin: updatedAtIso,
+        conversationsCount: 0,
+        conversations: [],
+      };
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, usersPath);
+  }
+}
+
+export async function setFirestoreAdminGrant(
+  targetUid: string,
+  targetEmail: string,
+  grant: boolean
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !currentUser.emailVerified) {
+    return;
+  }
+
+  const adminPath = `admins/${targetUid}`;
+  const adminRef = doc(db, 'admins', targetUid);
+
+  try {
+    if (grant) {
+      await setDoc(adminRef, {
+        uid: targetUid,
+        email: targetEmail.slice(0, 254),
+        grantedBy: currentUser.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await deleteDoc(adminRef);
+    }
+  } catch (error) {
+    handleFirestoreError(error, grant ? OperationType.CREATE : OperationType.DELETE, adminPath);
+  }
+}
+
 export function getFirebaseAuthErrorMessage(error: unknown): string {
   const code =
     typeof error === 'object' && error !== null && 'code' in error
       ? String((error as { code?: unknown }).code)
       : '';
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
 
   switch (code) {
     case 'auth/invalid-credential':
@@ -417,13 +609,13 @@ export function getFirebaseAuthErrorMessage(error: unknown): string {
     case 'auth/cancelled-popup-request':
       return 'Sign-in popup was closed before finishing. Please try again.';
     case 'auth/popup-blocked':
-      return 'Your browser blocked the sign-in popup. Please allow popups for this site and try again.';
+      return 'Your browser blocked the sign-in popup. Switching to redirect sign-in or allow popups for this site.';
     case 'auth/account-exists-with-different-credential':
       return 'An account already exists with this email using a different sign-in provider.';
     case 'auth/operation-not-allowed':
-      return 'This sign-in provider is not enabled yet in Firebase Console (Authentication -> Sign-in method). Google Sign-In is enabled by default.';
+      return 'This sign-in provider is not enabled yet in Firebase Console (Authentication -> Sign-in method).';
     case 'auth/unauthorized-domain':
-      return 'This domain is not authorized in Firebase Console -> Authentication -> Settings -> Authorized domains.';
+      return `Domain "${host || 'current origin'}" is not listed in Firebase Console -> Authentication -> Settings -> Authorized domains.`;
     case 'auth/requires-recent-login':
       return 'Please sign out and sign back in recently before completing this sensitive action.';
     case 'auth/network-request-failed':

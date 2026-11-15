@@ -9,6 +9,8 @@ import {
 } from 'firebase/auth';
 import {
   auth,
+  resolvePendingAuthRedirect,
+  testConnection,
   buildUserProfileFromAuth,
   syncUserProfileToFirestore,
   updateFirestoreUserProfile,
@@ -99,13 +101,31 @@ export default function App() {
     };
   });
 
-  // Subscribe to Firebase Authentication state with safety fallback so splash never hangs
+  // Subscribe to Firebase Authentication state & redirect results cleanly
   useEffect(() => {
+    let active = true;
     const authFallbackTimer = window.setTimeout(() => {
-      setAuthReady(true);
-    }, 3500);
+      if (active) setAuthReady(true);
+    }, 4500);
+
+    resolvePendingAuthRedirect().catch((redirectErr) => {
+      if (!active) return;
+      setAuthNotice({
+        type: 'warning',
+        message: getFirebaseAuthErrorMessage(redirectErr),
+      });
+    });
+
+    testConnection().then((status) => {
+      if (!active || status.online) return;
+      setAuthNotice({
+        type: 'warning',
+        message: status.message || 'Unable to reach Firestore. Check your connection or Firebase config.',
+      });
+    });
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (!active) return;
       window.clearTimeout(authFallbackTimer);
       setFirebaseUser(fbUser);
 
@@ -118,7 +138,7 @@ export default function App() {
         return;
       }
 
-      const pendingMeta = readPendingSignupMetadata(fbUser.uid);
+      const pendingMeta = readPendingSignupMetadata(fbUser.uid, fbUser.email);
       const immediateProfile = buildUserProfileFromAuth(
         fbUser,
         pendingMeta || undefined
@@ -132,6 +152,7 @@ export default function App() {
           fbUser,
           pendingMeta || undefined
         );
+        if (!active) return;
         setUserProfile(syncedProfile);
 
         // Keep server quota state aligned for chat API endpoints
@@ -150,14 +171,55 @@ export default function App() {
         }).catch(() => {});
       } catch (err) {
         console.error('Failed to sync user profile with Firestore:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("Quota exceeded for quota metric 'Free daily read units per project (free tier database)'")) {
+          setAuthNotice({
+            type: 'warning',
+            message: 'Firestore daily free quota exceeded. Quota resets tomorrow, or upgrade in Firebase Console.',
+          });
+        } else if (msg.includes('Quota exceeded')) {
+          setAuthNotice({
+            type: 'warning',
+            message: 'Firestore usage quota exceeded. Free tier quota resets tomorrow.',
+          });
+        }
       }
     });
 
     return () => {
+      active = false;
       window.clearTimeout(authFallbackTimer);
       unsubscribe();
     };
   }, []);
+
+  // Automatically re-check verification status when returning from email verification link
+  useEffect(() => {
+    if (!firebaseUser || firebaseUser.emailVerified) return;
+
+    const checkVerification = async () => {
+      try {
+        await firebaseUser.reload();
+        if (firebaseUser.emailVerified) {
+          await firebaseUser.getIdToken(true);
+          const synced = await syncUserProfileToFirestore(
+            firebaseUser,
+            readPendingSignupMetadata(firebaseUser.uid, firebaseUser.email) || undefined
+          );
+          setFirebaseUser({ ...firebaseUser } as FirebaseUser);
+          setUserProfile(synced);
+          setAuthNotice(null);
+        }
+      } catch {
+        // Ignore transient reload checks
+      }
+    };
+
+    window.addEventListener('focus', checkVerification);
+    return () => {
+      window.removeEventListener('focus', checkVerification);
+    };
+  }, [firebaseUser]);
 
   // Initialize native mobile lifecycle (StatusBar & hardware Back button) + Network listener
   useEffect(() => {
@@ -442,7 +504,7 @@ export default function App() {
       if (refreshedUser.emailVerified) {
         const synced = await syncUserProfileToFirestore(
           refreshedUser,
-          readPendingSignupMetadata(refreshedUser.uid) || undefined
+          readPendingSignupMetadata(refreshedUser.uid, refreshedUser.email) || undefined
         );
         setUserProfile(synced);
         setAuthNotice(null);

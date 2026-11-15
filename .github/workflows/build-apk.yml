@@ -193,7 +193,8 @@ jobs:
           cat > app/src/main/res/values/colors.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <color name="ic_launcher_background">#09090B</color>
+              <color name="ic_launcher_background">#F8F5F2</color>
+              <color name="splash_background">#090A14</color>
           </resources>
           EOF
 
@@ -208,9 +209,9 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <style name="Theme.AutomateAI" parent="@android:style/Theme.DeviceDefault.NoActionBar">
-                  <item name="android:windowBackground">@color/ic_launcher_background</item>
-                  <item name="android:statusBarColor">@color/ic_launcher_background</item>
-                  <item name="android:navigationBarColor">@color/ic_launcher_background</item>
+                  <item name="android:windowBackground">@color/splash_background</item>
+                  <item name="android:statusBarColor">@color/splash_background</item>
+                  <item name="android:navigationBarColor">@color/splash_background</item>
               </style>
           </resources>
           EOF
@@ -226,19 +227,27 @@ jobs:
           cp app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml \
              app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
 
-          # Generate Android launcher icons from the Automate AI logo
+          # Generate Android launcher icons from the new Automate AI reference logo
           python3 -m venv "${RUNNER_TEMP}/pyvenv"
           "${RUNNER_TEMP}/pyvenv/bin/pip" install --quiet pillow
           "${RUNNER_TEMP}/pyvenv/bin/python" - <<'PYEOF'
           import os
           from PIL import Image, ImageDraw
 
-          logo_path = "public/assets/aistudio/automate_ai_logo_transparent.png"
+          logo_path = "public/assets/aistudio/Gemini_Generated_Image_ee5hycee5hycee5h_050d414c.png"
+          bg_color = (248, 245, 242, 255)
           if os.path.isfile(logo_path):
-              logo = Image.open(logo_path).convert("RGBA")
+              src = Image.open(logo_path).convert("RGBA")
+              w, h = src.size
+              corner = src.getpixel((min(12, w - 1), min(12, h - 1)))
+              bg_color = (corner[0], corner[1], corner[2], 255)
+              # Tight centered square crop on the A + infinity emblem (excludes outer margins & corner watermark)
+              crop_size = max(128, int(min(w, h) * 0.60))
+              left = max(0, (w - crop_size) // 2)
+              top = max(0, (h - crop_size) // 2)
+              logo = src.crop((left, top, left + crop_size, top + crop_size))
           else:
-              logo = Image.new("RGBA", (512, 512), (99, 102, 241, 255))
-          bg_color = (9, 9, 11, 255)
+              logo = Image.new("RGBA", (512, 512), (168, 20, 48, 255))
 
           densities = {
               "mdpi": (48, 108),
@@ -252,9 +261,9 @@ jobs:
               out_dir = f"app/src/main/res/mipmap-{density}"
               os.makedirs(out_dir, exist_ok=True)
 
-              # Adaptive foreground (transparent canvas with logo scaled to safe zone)
-              fg_canvas = Image.new("RGBA", (fg_px, fg_px), (0, 0, 0, 0))
-              safe_size = int(fg_px * 0.62)
+              # Adaptive foreground (seamless studio background inside safe zone)
+              fg_canvas = Image.new("RGBA", (fg_px, fg_px), bg_color)
+              safe_size = int(fg_px * 0.68)
               resized_fg = logo.resize((safe_size, safe_size), Image.Resampling.LANCZOS)
               offset_fg = ((fg_px - safe_size) // 2, (fg_px - safe_size) // 2)
               fg_canvas.paste(resized_fg, offset_fg, resized_fg)
@@ -263,6 +272,10 @@ jobs:
               # Legacy square rounded icon
               sq = Image.new("RGBA", (icon_px, icon_px), (0, 0, 0, 0))
               sq_bg = Image.new("RGBA", (icon_px, icon_px), bg_color)
+              legacy_logo_size = int(icon_px * 0.86)
+              resized_legacy = logo.resize((legacy_logo_size, legacy_logo_size), Image.Resampling.LANCZOS)
+              offset_legacy = ((icon_px - legacy_logo_size) // 2, (icon_px - legacy_logo_size) // 2)
+              sq_bg.paste(resized_legacy, offset_legacy, resized_legacy)
               sq_mask = Image.new("L", (icon_px, icon_px), 0)
               ImageDraw.Draw(sq_mask).rounded_rectangle(
                   [0, 0, icon_px - 1, icon_px - 1],
@@ -270,10 +283,6 @@ jobs:
                   fill=255,
               )
               sq.paste(sq_bg, (0, 0), sq_mask)
-              legacy_logo_size = int(icon_px * 0.72)
-              resized_legacy = logo.resize((legacy_logo_size, legacy_logo_size), Image.Resampling.LANCZOS)
-              offset_legacy = ((icon_px - legacy_logo_size) // 2, (icon_px - legacy_logo_size) // 2)
-              sq.paste(resized_legacy, offset_legacy, resized_legacy)
               sq.save(os.path.join(out_dir, "ic_launcher.png"), "PNG")
 
               # Legacy circular icon
@@ -281,10 +290,9 @@ jobs:
               rd_mask = Image.new("L", (icon_px, icon_px), 0)
               ImageDraw.Draw(rd_mask).ellipse([0, 0, icon_px - 1, icon_px - 1], fill=255)
               rd.paste(sq_bg, (0, 0), rd_mask)
-              rd.paste(resized_legacy, offset_legacy, resized_legacy)
               rd.save(os.path.join(out_dir, "ic_launcher_round.png"), "PNG")
 
-          print("Generated Automate AI launcher icons across all mipmap densities.")
+          print("Generated new Automate AI reference launcher icons across all mipmap densities.")
           PYEOF
 
           cat > app/src/main/AndroidManifest.xml <<'EOF'
@@ -328,6 +336,7 @@ jobs:
           import android.Manifest;
           import android.annotation.SuppressLint;
           import android.app.Activity;
+          import android.app.Dialog;
           import android.app.DownloadManager;
           import android.content.Intent;
           import android.content.pm.ApplicationInfo;
@@ -336,6 +345,8 @@ jobs:
           import android.net.Uri;
           import android.os.Bundle;
           import android.os.Environment;
+          import android.os.Message;
+          import android.view.ViewGroup;
           import android.view.Window;
           import android.view.WindowManager;
           import android.webkit.CookieManager;
@@ -400,11 +411,16 @@ jobs:
                   settings.setLoadWithOverviewMode(true);
                   settings.setUseWideViewPort(true);
                   settings.setJavaScriptCanOpenWindowsAutomatically(true);
+                  settings.setSupportMultipleWindows(true);
                   settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
 
                   String ua = settings.getUserAgentString();
                   if (ua != null) {
-                      settings.setUserAgentString(ua.replace("; wv)", ")"));
+                      String cleanUa = ua
+                              .replace("; wv)", ")")
+                              .replace("; wv", "")
+                              .replaceAll("Version/\\d+\\.\\d+\\s*", "");
+                      settings.setUserAgentString(cleanUa);
                   }
 
                   CookieManager cookieManager = CookieManager.getInstance();
@@ -475,9 +491,14 @@ jobs:
 
                           // Keep Firebase / Google / GitHub auth flows inside WebView
                           if (host.endsWith("firebaseapp.com")
+                                  || host.endsWith("firebaseio.com")
                                   || host.endsWith("accounts.google.com")
                                   || host.endsWith("google.com")
+                                  || host.endsWith("googleapis.com")
+                                  || host.endsWith("googleusercontent.com")
+                                  || host.endsWith("gstatic.com")
                                   || host.endsWith("github.com")
+                                  || host.endsWith("githubusercontent.com")
                                   || host.endsWith("web.app")) {
                               return false;
                           }
@@ -495,6 +516,55 @@ jobs:
                   });
 
                   webView.setWebChromeClient(new WebChromeClient() {
+                      @SuppressLint("SetJavaScriptEnabled")
+                      @Override
+                      public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+                          final Dialog popupDialog = new Dialog(MainActivity.this, android.R.style.Theme_DeviceDefault_NoActionBar);
+                          final WebView popupWebView = new WebView(MainActivity.this);
+                          WebSettings pSettings = popupWebView.getSettings();
+                          pSettings.setJavaScriptEnabled(true);
+                          pSettings.setDomStorageEnabled(true);
+                          pSettings.setDatabaseEnabled(true);
+                          pSettings.setJavaScriptCanOpenWindowsAutomatically(true);
+                          pSettings.setSupportMultipleWindows(true);
+                          String cleanUa = webView.getSettings().getUserAgentString();
+                          if (cleanUa != null) {
+                              pSettings.setUserAgentString(cleanUa);
+                          }
+
+                          CookieManager cm = CookieManager.getInstance();
+                          cm.setAcceptCookie(true);
+                          cm.setAcceptThirdPartyCookies(popupWebView, true);
+
+                          popupWebView.setWebViewClient(new WebViewClient() {
+                              @Override
+                              public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req) {
+                                  return false;
+                              }
+                          });
+                          popupWebView.setWebChromeClient(new WebChromeClient() {
+                              @Override
+                              public void onCloseWindow(WebView window) {
+                                  if (popupDialog.isShowing()) {
+                                      popupDialog.dismiss();
+                                  }
+                                  popupWebView.destroy();
+                              }
+                          });
+
+                          popupDialog.setContentView(
+                                  popupWebView,
+                                  new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                          );
+                          popupDialog.setOnDismissListener(d -> popupWebView.destroy());
+                          popupDialog.show();
+
+                          WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                          transport.setWebView(popupWebView);
+                          resultMsg.sendToTarget();
+                          return true;
+                      }
+
                       @Override
                       public void onPermissionRequest(final PermissionRequest request) {
                           runOnUiThread(() -> handleWebPermissionRequest(request));
