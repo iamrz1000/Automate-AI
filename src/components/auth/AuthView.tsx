@@ -21,13 +21,12 @@ import {
   sendEmailVerification,
   updateProfile,
   setPersistence,
-  browserLocalPersistence,
+  indexedDBLocalPersistence,
   browserSessionPersistence,
 } from 'firebase/auth';
 import {
   auth,
   googleProvider,
-  githubProvider,
   signInWithProviderSmart,
   getFirebaseAuthErrorMessage,
   savePendingSignupMetadata,
@@ -53,6 +52,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [popupBlockedInIframe, setPopupBlockedInIframe] = useState(false);
   const [infoMessage, setInfoMessage] = useState('');
 
   // Sign In Form States
@@ -68,29 +68,25 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [signupOrg, setSignupOrg] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
 
-  // Sync Firebase Auth persistence outside click handlers so social popup calls never lose user-activation gesture
-  useEffect(() => {
-    setPersistence(
-      auth,
-      rememberMe ? browserLocalPersistence : browserSessionPersistence
-    ).catch(() => {
-      // Safe no-op in restricted WebViews where storage persistence cannot be reconfigured
-    });
-  }, [rememberMe]);
-
   const applyPersistenceSafely = async () => {
     try {
       await setPersistence(
         auth,
-        rememberMe ? browserLocalPersistence : browserSessionPersistence
+        rememberMe ? indexedDBLocalPersistence : browserSessionPersistence
       );
     } catch {
       // Continue with default persistence if WebView blocks storage switch
     }
   };
 
+  // Update persistence outside popup clicks so user-activation gesture is never lost
+  useEffect(() => {
+    applyPersistenceSafely();
+  }, [rememberMe]);
+
   const handleGoogleSignIn = async () => {
     setErrorMessage('');
+    setPopupBlockedInIframe(false);
     setInfoMessage('');
     setIsLoading(true);
     try {
@@ -103,34 +99,23 @@ export const AuthView: React.FC<AuthViewProps> = ({
           email: credential.user.email || '',
           emailVerified: credential.user.emailVerified,
           avatarUrl: credential.user.photoURL || undefined,
-          jobTitle: 'Developer',
         });
       }
     } catch (error) {
-      setErrorMessage(getFirebaseAuthErrorMessage(error));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGithubSignIn = async () => {
-    setErrorMessage('');
-    setInfoMessage('');
-    setIsLoading(true);
-    try {
-      const credential = await signInWithProviderSmart(githubProvider);
-      if (credential && onLogin) {
-        onLogin({
-          uid: credential.user.uid,
-          id: credential.user.uid,
-          name: credential.user.displayName || credential.user.email?.split('@')[0] || 'GitHub User',
-          email: credential.user.email || '',
-          emailVerified: credential.user.emailVerified,
-          avatarUrl: credential.user.photoURL || undefined,
-          jobTitle: 'Software Engineer',
-        });
+      const code =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? String((error as { code?: unknown }).code)
+          : '';
+      const inIframe = (() => {
+        try {
+          return window.self !== window.top;
+        } catch {
+          return true;
+        }
+      })();
+      if (inIframe && code === 'auth/popup-blocked') {
+        setPopupBlockedInIframe(true);
       }
-    } catch (error) {
       setErrorMessage(getFirebaseAuthErrorMessage(error));
     } finally {
       setIsLoading(false);
@@ -393,15 +378,15 @@ export const AuthView: React.FC<AuthViewProps> = ({
               })}
             </div>
 
-            {/* Social Logins */}
-            <div className="grid grid-cols-2 gap-3 mb-5">
+            {/* Google Sign-In */}
+            <div className="mb-5">
               <motion.button
-                whileTap={{ scale: 0.97 }}
+                whileTap={{ scale: 0.98 }}
                 whileHover={{ scale: 1.01 }}
                 type="button"
                 disabled={isLoading}
                 onClick={handleGoogleSignIn}
-                className="py-2.5 px-3 rounded-2xl liquid-glass-card text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full py-2.5 px-4 rounded-2xl liquid-glass-card text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                   <path
@@ -421,21 +406,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16c1.8 3.7 5.6 7 10.1 7z"
                   />
                 </svg>
-                <span>Google</span>
-              </motion.button>
-
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                whileHover={{ scale: 1.01 }}
-                type="button"
-                disabled={isLoading}
-                onClick={handleGithubSignIn}
-                className="py-2.5 px-3 rounded-2xl liquid-glass-card text-xs font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <svg className="w-4 h-4 fill-slate-900 dark:fill-white shrink-0" viewBox="0 0 24 24">
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-                </svg>
-                <span>GitHub</span>
+                <span>Continue with Google</span>
               </motion.button>
             </div>
 
@@ -449,9 +420,22 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
             {/* Form Validation Error / Inline Info */}
             {errorMessage && (
-              <div className="p-3 rounded-2xl bg-red-500/10 border border-red-400/40 text-red-700 dark:text-red-200 text-xs mb-4 flex items-center gap-2 backdrop-blur-md">
-                <AlertTriangle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0" />
-                <span>{errorMessage}</span>
+              <div className="p-3 rounded-2xl bg-red-500/10 border border-red-400/40 text-red-700 dark:text-red-200 text-xs mb-4 space-y-2 backdrop-blur-md">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+                  <span>{errorMessage}</span>
+                </div>
+                {popupBlockedInIframe && typeof window !== 'undefined' && (
+                  <a
+                    href={window.location.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full liquid-glass-orb text-[11px] font-semibold text-slate-900 dark:text-white hover:underline"
+                  >
+                    <span>Open app in new tab to sign in</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </a>
+                )}
               </div>
             )}
             {infoMessage && (

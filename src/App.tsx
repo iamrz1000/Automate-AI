@@ -61,6 +61,7 @@ export default function App() {
   // Firebase Authentication State
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isEmailVerified, setIsEmailVerified] = useState<boolean>(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isVerificationSending, setIsVerificationSending] = useState<boolean>(false);
   const [authNotice, setAuthNotice] = useState<{ type: 'info' | 'warning' | 'success'; message: string } | null>(null);
@@ -128,6 +129,7 @@ export default function App() {
       if (!active) return;
       window.clearTimeout(authFallbackTimer);
       setFirebaseUser(fbUser);
+      setIsEmailVerified(Boolean(fbUser?.emailVerified));
 
       if (!fbUser) {
         setIsAuthenticated(false);
@@ -195,18 +197,18 @@ export default function App() {
 
   // Automatically re-check verification status when returning from email verification link
   useEffect(() => {
-    if (!firebaseUser || firebaseUser.emailVerified) return;
+    if (!firebaseUser || isEmailVerified) return;
 
     const checkVerification = async () => {
       try {
         await firebaseUser.reload();
         if (firebaseUser.emailVerified) {
           await firebaseUser.getIdToken(true);
+          setIsEmailVerified(true);
           const synced = await syncUserProfileToFirestore(
             firebaseUser,
             readPendingSignupMetadata(firebaseUser.uid, firebaseUser.email) || undefined
           );
-          setFirebaseUser({ ...firebaseUser } as FirebaseUser);
           setUserProfile(synced);
           setAuthNotice(null);
         }
@@ -219,7 +221,7 @@ export default function App() {
     return () => {
       window.removeEventListener('focus', checkVerification);
     };
-  }, [firebaseUser]);
+  }, [firebaseUser, isEmailVerified]);
 
   // Initialize native mobile lifecycle (StatusBar & hardware Back button) + Network listener
   useEffect(() => {
@@ -501,6 +503,7 @@ export default function App() {
       await auth.currentUser.getIdToken(true);
       const refreshedUser = auth.currentUser;
       setFirebaseUser(refreshedUser);
+      setIsEmailVerified(Boolean(refreshedUser.emailVerified));
       if (refreshedUser.emailVerified) {
         const synced = await syncUserProfileToFirestore(
           refreshedUser,
@@ -702,7 +705,7 @@ export default function App() {
           }}
         />
 
-        {firebaseUser && !firebaseUser.emailVerified && (
+        {firebaseUser && !isEmailVerified && (
           <div className="mx-3 mt-1 mb-0.5 px-3.5 py-2 rounded-2xl liquid-glass-subtle border border-amber-400/35 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200 shrink-0">
             <span>
               Verify <strong>{firebaseUser.email}</strong> via the link sent to your inbox to enable cloud profile syncing.

@@ -190,8 +190,9 @@ function sanitizeString(value: unknown, fallback: string, maxLen: number): strin
 }
 
 /**
- * Primary signInWithPopup with automatic signInWithRedirect fallback when
- * popups are blocked or unsupported (e.g., strict mobile browsers or WebViews).
+ * Primary signInWithPopup with automatic signInWithRedirect fallback only when
+ * running in a top-level window (never inside an iframe, where X-Frame-Options
+ * blocks accounts.google.com redirects).
  * Note: Call directly from a user click handler without prior async `await`
  * so the browser keeps the user-activation gesture intact.
  */
@@ -206,9 +207,20 @@ export async function signInWithProviderSmart(
         ? String((error as { code?: unknown }).code)
         : '';
 
+    const isInIframe =
+      typeof window !== 'undefined' &&
+      (() => {
+        try {
+          return window.self !== window.top;
+        } catch {
+          return true;
+        }
+      })();
+
     if (
-      code === 'auth/popup-blocked' ||
-      code === 'auth/operation-not-supported-in-this-environment'
+      !isInIframe &&
+      (code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment')
     ) {
       await signInWithRedirect(auth, provider);
       return null;
@@ -594,9 +606,9 @@ export function getFirebaseAuthErrorMessage(error: unknown): string {
     case 'auth/invalid-credential':
     case 'auth/wrong-password':
     case 'auth/user-not-found':
-      return 'Invalid email or password. Please check your credentials and try again.';
+      return 'Invalid email or password. If you originally registered with Google, click "Continue with Google" above.';
     case 'auth/email-already-in-use':
-      return 'An account with this email already exists. Try signing in instead.';
+      return 'An account with this email already exists. Try signing in instead, or click "Continue with Google".';
     case 'auth/weak-password':
       return 'Password is too weak. Please choose at least 6 characters.';
     case 'auth/invalid-email':
@@ -609,9 +621,9 @@ export function getFirebaseAuthErrorMessage(error: unknown): string {
     case 'auth/cancelled-popup-request':
       return 'Sign-in popup was closed before finishing. Please try again.';
     case 'auth/popup-blocked':
-      return 'Your browser blocked the sign-in popup. Switching to redirect sign-in or allow popups for this site.';
+      return 'Sign-in popup was blocked by your browser. Please allow popups for this site or open the app in a new tab.';
     case 'auth/account-exists-with-different-credential':
-      return 'An account already exists with this email using a different sign-in provider.';
+      return 'An account already exists with this email using Google Sign-In. Please click "Continue with Google".';
     case 'auth/operation-not-allowed':
       return 'This sign-in provider is not enabled yet in Firebase Console (Authentication -> Sign-in method).';
     case 'auth/unauthorized-domain':
