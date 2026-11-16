@@ -13,6 +13,8 @@ import {
   Info,
   CheckCircle2,
   Shield,
+  ExternalLink,
+  Wrench,
 } from 'lucide-react';
 import {
   signInWithEmailAndPassword,
@@ -22,13 +24,17 @@ import {
   updateProfile,
   setPersistence,
   indexedDBLocalPersistence,
+  browserLocalPersistence,
   browserSessionPersistence,
 } from 'firebase/auth';
 import {
   auth,
   googleProvider,
   signInWithProviderSmart,
+  extractFirebaseAuthCode,
   getFirebaseAuthErrorMessage,
+  fetchFirebaseAuthDiagnostics,
+  FirebaseAuthDiagnostics,
   savePendingSignupMetadata,
   savePendingSignupMetadataByEmail,
 } from '../../firebase';
@@ -53,6 +59,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [popupBlockedInIframe, setPopupBlockedInIframe] = useState(false);
+  const [emailProviderDisabled, setEmailProviderDisabled] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<FirebaseAuthDiagnostics | null>(null);
+  const [isCheckingDiagnostics, setIsCheckingDiagnostics] = useState(false);
   const [infoMessage, setInfoMessage] = useState('');
 
   // Sign In Form States
@@ -68,6 +78,16 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [signupOrg, setSignupOrg] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
 
+  const runDiagnostics = async (knownEmailDisabled = emailProviderDisabled) => {
+    setIsCheckingDiagnostics(true);
+    try {
+      const result = await fetchFirebaseAuthDiagnostics(knownEmailDisabled);
+      setDiagnostics(result);
+    } finally {
+      setIsCheckingDiagnostics(false);
+    }
+  };
+
   const applyPersistenceSafely = async () => {
     try {
       await setPersistence(
@@ -75,7 +95,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
         rememberMe ? indexedDBLocalPersistence : browserSessionPersistence
       );
     } catch {
-      // Continue with default persistence if WebView blocks storage switch
+      if (rememberMe) {
+        try {
+          await setPersistence(auth, browserLocalPersistence);
+        } catch {
+          // Continue with Firebase memory fallback if storage is blocked
+        }
+      }
     }
   };
 
@@ -83,6 +109,38 @@ export const AuthView: React.FC<AuthViewProps> = ({
   useEffect(() => {
     applyPersistenceSafely();
   }, [rememberMe]);
+
+  const handleAuthFailure = (error: unknown) => {
+    const code = extractFirebaseAuthCode(error);
+    const inIframe = (() => {
+      try {
+        return window.self !== window.top;
+      } catch {
+        return true;
+      }
+    })();
+
+    if (
+      inIframe &&
+      (code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/internal-error' ||
+        code === 'auth/popup-closed-by-user')
+    ) {
+      setPopupBlockedInIframe(true);
+    }
+
+    if (code === 'auth/operation-not-allowed' || code === 'auth/admin-restricted-operation') {
+      setEmailProviderDisabled(true);
+      setShowDiagnostics(true);
+      runDiagnostics(true);
+    } else if (code === 'auth/unauthorized-domain') {
+      setShowDiagnostics(true);
+      runDiagnostics(emailProviderDisabled);
+    }
+
+    setErrorMessage(getFirebaseAuthErrorMessage(error));
+  };
 
   const handleGoogleSignIn = async () => {
     setErrorMessage('');
@@ -102,21 +160,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         });
       }
     } catch (error) {
-      const code =
-        typeof error === 'object' && error !== null && 'code' in error
-          ? String((error as { code?: unknown }).code)
-          : '';
-      const inIframe = (() => {
-        try {
-          return window.self !== window.top;
-        } catch {
-          return true;
-        }
-      })();
-      if (inIframe && code === 'auth/popup-blocked') {
-        setPopupBlockedInIframe(true);
-      }
-      setErrorMessage(getFirebaseAuthErrorMessage(error));
+      handleAuthFailure(error);
     } finally {
       setIsLoading(false);
     }
@@ -136,7 +180,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       await sendPasswordResetEmail(auth, targetEmail);
       setInfoMessage(`Password reset instructions sent to ${targetEmail}. Please check your inbox.`);
     } catch (error) {
-      setErrorMessage(getFirebaseAuthErrorMessage(error));
+      handleAuthFailure(error);
     } finally {
       setIsLoading(false);
     }
@@ -145,6 +189,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const handleSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setPopupBlockedInIframe(false);
     setInfoMessage('');
 
     const normalizedEmail = loginEmail.trim();
@@ -171,7 +216,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         });
       }
     } catch (error) {
-      setErrorMessage(getFirebaseAuthErrorMessage(error));
+      handleAuthFailure(error);
     } finally {
       setIsLoading(false);
     }
@@ -180,6 +225,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setPopupBlockedInIframe(false);
     setInfoMessage('');
 
     const trimmedName = signupName.trim();
@@ -256,7 +302,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         });
       }
     } catch (error) {
-      setErrorMessage(getFirebaseAuthErrorMessage(error));
+      handleAuthFailure(error);
     } finally {
       setIsLoading(false);
     }
@@ -425,17 +471,30 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   <AlertTriangle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
                   <span>{errorMessage}</span>
                 </div>
-                {popupBlockedInIframe && typeof window !== 'undefined' && (
-                  <a
-                    href={window.location.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full liquid-glass-orb text-[11px] font-semibold text-slate-900 dark:text-white hover:underline"
-                  >
-                    <span>Open app in new tab to sign in</span>
-                    <ArrowRight className="w-3 h-3" />
-                  </a>
-                )}
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  {popupBlockedInIframe && typeof window !== 'undefined' && (
+                    <a
+                      href={window.location.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full liquid-glass-orb text-[11px] font-semibold text-slate-900 dark:text-white hover:underline"
+                    >
+                      <span>Open app in new tab to sign in</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </a>
+                  )}
+                  {emailProviderDisabled && (
+                    <a
+                      href={`https://console.firebase.google.com/project/${diagnostics?.projectId || 'gen-lang-client-0973207912'}/authentication/providers`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full liquid-glass-orb text-[11px] font-semibold text-slate-900 dark:text-white hover:underline"
+                    >
+                      <span>Enable Email/Password in Firebase Console</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
               </div>
             )}
             {infoMessage && (
@@ -677,10 +736,106 @@ export const AuthView: React.FC<AuthViewProps> = ({
               )}
             </AnimatePresence>
 
-            {/* Bottom Security Note */}
-            <div className="mt-6 pt-4 border-t border-slate-900/10 dark:border-white/10 flex items-center justify-center gap-2 text-slate-500 dark:text-slate-400 text-[11px]">
-              <Shield className="w-3.5 h-3.5 text-violet-500 dark:text-violet-300 shrink-0" />
-              <span>Encrypted with TLS 1.3 & enterprise-grade MCP sandboxes</span>
+            {/* Live Auth Diagnostics Panel */}
+            {showDiagnostics && (
+              <div className="mt-4 p-3.5 rounded-2xl liquid-glass-subtle border border-violet-400/25 text-[11px] space-y-2 text-slate-700 dark:text-slate-300">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <Wrench className="w-3.5 h-3.5 text-violet-500 dark:text-violet-300" />
+                    Firebase Auth Check
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => runDiagnostics()}
+                    disabled={isCheckingDiagnostics}
+                    className="text-[10px] font-semibold text-violet-600 dark:text-violet-300 hover:underline cursor-pointer disabled:opacity-60"
+                  >
+                    {isCheckingDiagnostics ? 'Checking...' : 'Re-check'}
+                  </button>
+                </div>
+                {diagnostics ? (
+                  <div className="space-y-1.5 leading-relaxed">
+                    <div>
+                      <span className="font-semibold">Google Sign-In / Sign-Up:</span>{' '}
+                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Enabled</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold">Email/Password Provider:</span>{' '}
+                      {diagnostics.emailPasswordKnownDisabled ? (
+                        <span className="text-amber-600 dark:text-amber-300 font-semibold">
+                          Disabled in Firebase Console (enable under Authentication &rarr; Sign-in method)
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 dark:text-slate-300">
+                          Requires Email/Password enabled in Firebase Console
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Domain ({diagnostics.currentHost}):</span>{' '}
+                      {diagnostics.isAuthorizedDomain === true ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Authorized</span>
+                      ) : diagnostics.isAuthorizedDomain === false ? (
+                        <span className="text-red-600 dark:text-red-300 font-semibold">
+                          Not listed in Firebase Authorized Domains
+                        </span>
+                      ) : (
+                        <span>Unable to verify</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Firestore ({diagnostics.projectId}):</span>{' '}
+                      <span className={diagnostics.firestoreOnline ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-red-600 dark:text-red-300 font-semibold'}>
+                        {diagnostics.firestoreOnline ? 'Reachable' : 'Offline / Check config'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <a
+                        href={`https://console.firebase.google.com/project/${diagnostics.projectId}/authentication/providers`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-300 font-semibold hover:underline"
+                      >
+                        <span>Open Sign-in Methods</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <a
+                        href={`https://console.firebase.google.com/project/${diagnostics.projectId}/authentication/settings`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-300 font-semibold hover:underline"
+                      >
+                        <span>Open Authorized Domains</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-slate-500 dark:text-slate-400">Checking Firebase configuration...</div>
+                )}
+              </div>
+            )}
+
+            {/* Bottom Security Note & Diagnostics Toggle */}
+            <div className="mt-6 pt-4 border-t border-slate-900/10 dark:border-white/10 flex flex-wrap items-center justify-between gap-2 text-slate-500 dark:text-slate-400 text-[11px]">
+              <div className="flex items-center gap-2">
+                <Shield className="w-3.5 h-3.5 text-violet-500 dark:text-violet-300 shrink-0" />
+                <span>Firebase Auth &bull; TLS 1.3</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !showDiagnostics;
+                  setShowDiagnostics(next);
+                  if (next && !diagnostics) {
+                    runDiagnostics();
+                  }
+                }}
+                className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-300 hover:underline font-medium cursor-pointer"
+              >
+                <Wrench className="w-3 h-3" />
+                <span>{showDiagnostics ? 'Hide auth check' : 'Auth check'}</span>
+              </button>
             </div>
           </motion.div>
         </div>

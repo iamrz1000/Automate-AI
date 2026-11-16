@@ -448,8 +448,8 @@ export default function App() {
     setUserProfile((prev) => {
       const nextMessages = (prev.messagesToday || 0) + 1;
       const nextImages = (prev.imagesToday || 0) + (isImageRequest ? 1 : 0);
-      if (firebaseUser && firebaseUser.emailVerified) {
-        incrementFirestoreUsageCounters(firebaseUser.uid, nextMessages, nextImages);
+      if (auth.currentUser?.emailVerified) {
+        incrementFirestoreUsageCounters(auth.currentUser.uid, nextMessages, nextImages);
       }
       return {
         ...prev,
@@ -600,12 +600,17 @@ export default function App() {
 
   const handleLogin = (profileData: Partial<UserProfile>) => {
     setAuthNotice(null);
-    setUserProfile((prev) => ({
-      ...prev,
-      ...profileData,
-      name: profileData.name || prev.name || 'Member',
-      email: profileData.email || prev.email,
-    }));
+    setUserProfile((prev) => {
+      if (profileData.uid && prev.uid === profileData.uid && prev.id === profileData.uid) {
+        return prev;
+      }
+      return {
+        ...prev,
+        ...profileData,
+        name: profileData.name || prev.name || 'Member',
+        email: profileData.email || prev.email,
+      };
+    });
   };
 
   if (!authReady) {

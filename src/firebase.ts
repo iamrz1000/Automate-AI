@@ -595,11 +595,91 @@ export async function setFirestoreAdminGrant(
   }
 }
 
+export interface FirebaseAuthDiagnostics {
+  projectId: string;
+  firestoreDatabaseId: string;
+  currentHost: string;
+  isAuthorizedDomain: boolean | null;
+  authorizedDomains: string[];
+  isInIframe: boolean;
+  firestoreOnline: boolean;
+  googleProviderConfigured: boolean;
+  emailPasswordKnownDisabled: boolean;
+}
+
+export async function fetchFirebaseAuthDiagnostics(
+  emailPasswordKnownDisabled = false
+): Promise<FirebaseAuthDiagnostics> {
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+  const isInIframe =
+    typeof window !== 'undefined' &&
+    (() => {
+      try {
+        return window.self !== window.top;
+      } catch {
+        return true;
+      }
+    })();
+
+  let authorizedDomains: string[] = [];
+  let isAuthorizedDomain: boolean | null = null;
+
+  try {
+    const resp = await fetch(
+      `https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=${encodeURIComponent(
+        firebaseConfig.apiKey
+      )}`
+    );
+    if (resp.ok) {
+      const json = (await resp.json()) as { authorizedDomains?: unknown };
+      if (Array.isArray(json.authorizedDomains)) {
+        authorizedDomains = json.authorizedDomains.filter(
+          (d): d is string => typeof d === 'string'
+        );
+        if (currentHost) {
+          const lowerHost = currentHost.toLowerCase();
+          isAuthorizedDomain = authorizedDomains.some((d) => {
+            const lowerD = d.toLowerCase();
+            return lowerHost === lowerD || lowerHost.endsWith(`.${lowerD}`);
+          });
+        }
+      }
+    }
+  } catch {
+    // Keep null if network fails
+  }
+
+  const conn = await testConnection();
+
+  return {
+    projectId: firebaseConfig.projectId,
+    firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
+    currentHost: currentHost || 'unknown',
+    isAuthorizedDomain,
+    authorizedDomains,
+    isInIframe,
+    firestoreOnline: conn.online,
+    googleProviderConfigured: true,
+    emailPasswordKnownDisabled,
+  };
+}
+
+export function extractFirebaseAuthCode(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    return String((error as { code?: unknown }).code || '');
+  }
+  const msg = error instanceof Error ? error.message : String(error || '');
+  if (msg.includes('PASSWORD_LOGIN_DISABLED') || msg.includes('OPERATION_NOT_ALLOWED')) {
+    return 'auth/operation-not-allowed';
+  }
+  if (msg.includes('UNAUTHORIZED_DOMAIN')) {
+    return 'auth/unauthorized-domain';
+  }
+  return '';
+}
+
 export function getFirebaseAuthErrorMessage(error: unknown): string {
-  const code =
-    typeof error === 'object' && error !== null && 'code' in error
-      ? String((error as { code?: unknown }).code)
-      : '';
+  const code = extractFirebaseAuthCode(error);
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
 
   switch (code) {
@@ -619,19 +699,26 @@ export function getFirebaseAuthErrorMessage(error: unknown): string {
       return 'Too many authentication attempts. Please wait a moment and try again.';
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
-      return 'Sign-in popup was closed before finishing. Please try again.';
+      return 'Sign-in popup was closed before finishing. Please try again or open the app in a new tab.';
     case 'auth/popup-blocked':
-      return 'Sign-in popup was blocked by your browser. Please allow popups for this site or open the app in a new tab.';
+      return 'Sign-in popup was blocked by your browser. Allow popups for this site or open the app in a new tab.';
+    case 'auth/operation-not-supported-in-this-environment':
+      return 'Popup sign-in is restricted in this embedded view. Open the app in a new browser tab to sign in with Google.';
     case 'auth/account-exists-with-different-credential':
       return 'An account already exists with this email using Google Sign-In. Please click "Continue with Google".';
     case 'auth/operation-not-allowed':
-      return 'This sign-in provider is not enabled yet in Firebase Console (Authentication -> Sign-in method).';
+    case 'auth/admin-restricted-operation':
+      return `Email/Password sign-in is currently disabled in Firebase Console for project "${firebaseConfig.projectId}". Enable it under Authentication -> Sign-in method -> Email/Password, or click "Continue with Google" above.`;
     case 'auth/unauthorized-domain':
       return `Domain "${host || 'current origin'}" is not listed in Firebase Console -> Authentication -> Settings -> Authorized domains.`;
+    case 'auth/unauthorized-continue-uri':
+      return 'Verification redirect domain is not authorized in Firebase Console.';
     case 'auth/requires-recent-login':
       return 'Please sign out and sign back in recently before completing this sensitive action.';
     case 'auth/network-request-failed':
       return 'Network error while contacting Firebase Authentication. Please check your connection.';
+    case 'auth/internal-error':
+      return 'Firebase Auth encountered a browser popup/storage restriction. Try opening the app in a new tab and signing in again.';
     default:
       return error instanceof Error && error.message
         ? error.message

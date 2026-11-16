@@ -536,6 +536,17 @@ jobs:
                           cm.setAcceptCookie(true);
                           cm.setAcceptThirdPartyCookies(popupWebView, true);
 
+                          final boolean[] popupDestroyed = { false };
+                          Runnable destroyPopupWebView = () -> {
+                              if (!popupDestroyed[0]) {
+                                  popupDestroyed[0] = true;
+                                  popupWebView.stopLoading();
+                                  popupWebView.onPause();
+                                  popupWebView.removeAllViews();
+                                  popupWebView.destroy();
+                              }
+                          };
+
                           popupWebView.setWebViewClient(new WebViewClient() {
                               @Override
                               public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req) {
@@ -548,7 +559,7 @@ jobs:
                                   if (popupDialog.isShowing()) {
                                       popupDialog.dismiss();
                                   }
-                                  popupWebView.destroy();
+                                  destroyPopupWebView.run();
                               }
                           });
 
@@ -556,7 +567,7 @@ jobs:
                                   popupWebView,
                                   new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                           );
-                          popupDialog.setOnDismissListener(d -> popupWebView.destroy());
+                          popupDialog.setOnDismissListener(d -> destroyPopupWebView.run());
                           popupDialog.show();
 
                           WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
